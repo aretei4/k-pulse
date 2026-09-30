@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">K-Pulse Field</string>
+    <string name="offline_title">No connection</string>
+    <string name="offline_body">K-Pulse needs network to load your voter list. Check your signal and try again.</string>
+    <string name="retry">Try again</string>
+</resources>

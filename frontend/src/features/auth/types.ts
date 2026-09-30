@@ -1,0 +1,22 @@
+export interface AdminLoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface AgentSignupPayload {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+}
+
+export interface OtpRequestResult {
+  sent: boolean;
+  /** Only populated outside production, so the demo never needs a real SMS gateway. */
+  devOtp?: string;
+}
+
+export interface SignupResult {
+  message: string;
+  devOtp?: string;
+}

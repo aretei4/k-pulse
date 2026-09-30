@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  K-Pulse mark: one continuous stroke that falls into a trough and rises out of
+  it as a tick — a pulse reading and "recorded" in the same gesture.
+
+  Sized so the whole path plus half its stroke width stays inside the central
+  72dp of the 108dp canvas, which is the only region an adaptive icon is
+  guaranteed to show whatever mask the launcher applies.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M27.99,54.00 L36.37,54.00 L41.89,61.43 L49.36,33.57 L56.79,70.72 L80.01,39.14"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8.82"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

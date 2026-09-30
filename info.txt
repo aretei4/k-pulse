@@ -1,0 +1,11 @@
+D:\project\voter\workspace\backend>
+D:\work\project\qualyc\unix
+
+lsof -i :8090
+ssh -i tomcat ubuntu@direco.co.in
+scp -i tomcat "D:\project\voter\workspace\backend\target\pluse-1.0.0.jar" ubuntu@direco.co.in:/home/ubuntu/kpulse/backend/app.jar
+scp -i tomcat -r "D:\project\voter\workspace\frontend\dist" ubuntu@direco.co.in:/home/ubuntu/kpulse
+
+https://ceoodisha.nic.in/en/view_eroll_2002/
+
+python D:/project/voter/tools/voterlist_extract/extract_voterlist.py P120174.pdf -o P120174_voters.xlsx --ward 2

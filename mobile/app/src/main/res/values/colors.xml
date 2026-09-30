@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the web app's design tokens so the shell and the page agree. -->
+    <color name="ink">#152A38</color>
+    <color name="ink_soft">#4A5A66</color>
+    <color name="paper">#F3EEE3</color>
+    <color name="marigold">#C98A2E</color>
+    <color name="marigold_deep">#8F5F17</color>
+</resources>

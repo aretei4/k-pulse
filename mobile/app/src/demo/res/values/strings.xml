@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overrides main/ for the demo build type only, so the two apps are told
+     apart in the launcher and the recents list. -->
+<resources>
+    <string name="app_name">K-Pulse Demo</string>
+</resources>

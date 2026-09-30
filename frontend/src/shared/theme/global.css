@@ -1,0 +1,85 @@
+:root {
+  --ink: #152a38;
+  --ink-soft: #4a5a66;
+  --paper: #f3eee3;
+  --card: #ffffff;
+  --line: #dad2be;
+  --marigold: #c98a2e;
+  --marigold-deep: #8f5f17;
+  --positive: #2f6b4f;
+  --negative: #b5482f;
+  --neutral: #a9925e;
+  --muted: #8a8271;
+  --serif: 'Petrona', Georgia, serif;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', monospace;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+/* min-height, not height: a fixed 100% clips #root to a single viewport, which
+   unsticks the admin layout's sticky header as soon as the page scrolls. */
+html { height: 100%; }
+body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; }
+input, select, textarea { font: inherit; }
+a { color: inherit; }
+
+h1, h2, h3 { font-family: var(--serif); }
+
+::placeholder { color: var(--muted); }
+
+/* Scrollbars stay out of the way of the paper-and-ink palette. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d8d0bc; border-radius: 8px; border: 3px solid var(--paper); }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes kp-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.kp-fade { animation: kp-fade-in 180ms ease-out; }
+
+@keyframes kp-spin { to { transform: rotate(360deg); } }
+.kp-spin { animation: kp-spin 700ms linear infinite; }
+
+/* Admin shell: menu on the left, stacked across the top on narrow screens. */
+.kp-admin {
+  display: flex;
+  align-items: flex-start;
+}
+
+@media (max-width: 900px) {
+  .kp-admin {
+    display: block;
+  }
+  .kp-admin-aside {
+    width: 100% !important;
+    height: auto !important;
+    position: static !important;
+    border-right: none !important;
+    border-bottom: 1px solid #dad2be;
+  }
+  .kp-admin-nav {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+  }
+  .kp-admin-account {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .kp-admin-account button {
+    width: auto !important;
+  }
+  .kp-admin-main {
+    padding: 18px !important;
+  }
+}

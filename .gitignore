@@ -1,0 +1,24 @@
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/*.local
+
+# backend
+backend/target/
+
+# per-environment secrets: only kpulse-secrets.properties.example is committed
+backend/config/*.properties
+
+# mobile (Android)
+mobile/.gradle/
+mobile/build/
+mobile/app/build/
+mobile/local.properties
+mobile/.cxx/
+
+# tooling
+.idea/
+.vscode/
+*.iml
+.DS_Store
