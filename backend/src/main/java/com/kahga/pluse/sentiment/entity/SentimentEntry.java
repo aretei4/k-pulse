@@ -1,6 +1,7 @@
 package com.kahga.pluse.sentiment.entity;
 
 import com.kahga.pluse.candidate.entity.Candidate;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
 import com.kahga.pluse.user.entity.User;
 import com.kahga.pluse.voter.entity.Voter;
 import java.time.Instant;
@@ -36,6 +37,9 @@ public class SentimentEntry {
     private boolean resident;
 
     private Integer wardNo;
+
+    /** The cycle this was recorded in; a new cycle starts fresh rows (FR-A11). */
+    private ElectionCycle electionCycle;
 
     private User recordedBy;
 

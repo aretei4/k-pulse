@@ -19,11 +19,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
 
+    /**
+     * The URL actually showing. Resolved once per launch from Remote Config's
+     * cache (falling back to the build's own), then replaced only if a fetch
+     * brings back a different, usable one.
+     */
+    private lateinit var agentUrl: String
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        agentUrl = AgentUrl.current(this)
 
         binding.webView.apply {
             settings.javaScriptEnabled = true
@@ -61,6 +70,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             binding.webView.restoreState(savedInstanceState)
         }
+
+        // Asked for after the page is already loading, never before it: a slow or
+        // failed fetch must not leave an agent staring at a blank screen.
+        AgentUrl.refresh(this, agentUrl) { moved ->
+            agentUrl = moved
+            load()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -71,7 +87,7 @@ class MainActivity : AppCompatActivity() {
     private fun load() {
         binding.errorView.visibility = View.GONE
         binding.webView.visibility = View.VISIBLE
-        binding.webView.loadUrl(BuildConfig.AGENT_URL)
+        binding.webView.loadUrl(agentUrl)
     }
 
     private inner class AgentWebViewClient : WebViewClient() {
@@ -84,7 +100,7 @@ class MainActivity : AppCompatActivity() {
          */
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val host = request.url.host ?: return false
-            val ourHost = android.net.Uri.parse(BuildConfig.AGENT_URL).host
+            val ourHost = AgentUrl.hostOf(agentUrl)
             if (host == ourHost) return false
             return try {
                 startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, request.url))

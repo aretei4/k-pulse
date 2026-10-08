@@ -1,10 +1,19 @@
 import { request } from '@/lib/apiClient';
 import type { AuthSession, AuthUser } from '@/shared/types';
-import type { AdminLoginPayload, AgentSignupPayload, OtpRequestResult, SignupResult } from '../types';
+import type {
+  AdminLoginPayload,
+  AgentLoginPayload,
+  AgentSignupPayload,
+  OtpRequestResult,
+  SignupResult,
+} from '../types';
 
 export const authApi = {
   adminLogin: (payload: AdminLoginPayload) =>
     request<AuthSession>('/api/auth/admin/login', { method: 'POST', body: payload }),
+
+  agentLogin: (payload: AgentLoginPayload) =>
+    request<AuthSession>('/api/auth/agent/login', { method: 'POST', body: payload }),
 
   requestOtp: (phone: string) =>
     request<OtpRequestResult>('/api/auth/agent/otp/request', { method: 'POST', body: { phone } }),

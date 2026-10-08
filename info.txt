@@ -7,5 +7,7 @@ scp -i tomcat "D:\project\voter\workspace\backend\target\pluse-1.0.0.jar" ubuntu
 scp -i tomcat -r "D:\project\voter\workspace\frontend\dist" ubuntu@direco.co.in:/home/ubuntu/kpulse
 
 https://ceoodisha.nic.in/en/view_eroll_2002/
+https://voters.eci.gov.in/download-eroll
 
 python D:/project/voter/tools/voterlist_extract/extract_voterlist.py P120174.pdf -o P120174_voters.xlsx --ward 2
+python extract_voterlist.py roll.pdf --from 3 --to 26 --ward 4

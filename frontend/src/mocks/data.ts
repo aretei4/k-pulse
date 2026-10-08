@@ -34,9 +34,11 @@ function int(min: number, max: number) {
   return min + Math.floor(rand() * (max - min + 1));
 }
 
+// Mapped to the panchayat each contests, so the candidate screen opens on their
+// own booths rather than at district level.
 export const candidates: Candidate[] = [
-  { id: 'cand-1', name: 'R. Mohanty', party: 'Independent', unitId: null, unitName: null },
-  { id: 'cand-2', name: 'K. Pradhan', party: 'Independent', unitId: null, unitName: null },
+  { id: 'cand-1', name: 'R. Mohanty', party: 'Independent', unitId: 'pan-1-1', unitName: 'Kansabansa' },
+  { id: 'cand-2', name: 'K. Pradhan', party: 'Independent', unitId: 'pan-2-1', unitName: 'Gadiali' },
 ];
 
 interface BoothSpec {

@@ -8,6 +8,7 @@ import static com.kahga.pluse.common.jdbc.JdbcSupport.timestamp;
 import static com.kahga.pluse.common.jdbc.JdbcSupport.uuid;
 
 import com.kahga.pluse.candidate.repository.CandidateRepository;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
 import com.kahga.pluse.sentiment.entity.ConfidenceLevel;
 import com.kahga.pluse.sentiment.entity.SentimentEntry;
 import com.kahga.pluse.sentiment.entity.SentimentValue;
@@ -29,6 +30,7 @@ public class SentimentEntryRepository {
 
     private static final String SELECT = """
             SELECT e.id, e.voter_id, e.sentiment, e.confidence, e.resident, e.ward_no, e.recorded_at, e.updated_at,
+                   e.election_cycle_id,
                    %s,
                    %s
               FROM sentiment_entry e
@@ -38,15 +40,17 @@ public class SentimentEntryRepository {
 
     private static final String INSERT = """
             INSERT INTO sentiment_entry
-                   (id, voter_id, candidate_id, sentiment, confidence, resident, ward_no, recorded_by_id, recorded_at, updated_at)
-            VALUES (:id, :voterId, :candidateId, :sentiment, :confidence, :resident, :wardNo, :recordedById, :recordedAt, :updatedAt)
+                   (id, voter_id, candidate_id, sentiment, confidence, resident, ward_no, recorded_by_id,
+                    recorded_at, updated_at, election_cycle_id)
+            VALUES (:id, :voterId, :candidateId, :sentiment, :confidence, :resident, :wardNo, :recordedById,
+                    :recordedAt, :updatedAt, :electionCycleId)
             """;
 
     private static final String UPDATE = """
             UPDATE sentiment_entry
                SET voter_id = :voterId, candidate_id = :candidateId, sentiment = :sentiment, confidence = :confidence,
                    resident = :resident, ward_no = :wardNo, recorded_by_id = :recordedById,
-                   recorded_at = :recordedAt, updated_at = :updatedAt
+                   recorded_at = :recordedAt, updated_at = :updatedAt, election_cycle_id = :electionCycleId
              WHERE id = :id
             """;
 
@@ -58,10 +62,16 @@ public class SentimentEntryRepository {
             .confidence(enumValue(rs, "confidence", ConfidenceLevel.class))
             .resident(rs.getBoolean("resident"))
             .wardNo(integer(rs, "ward_no"))
+            .electionCycle(cycleOf(uuid(rs, "election_cycle_id")))
             .recordedBy(UserRepository.map(rs, "recorded_by_"))
             .recordedAt(instant(rs, "recorded_at"))
             .updatedAt(instant(rs, "updated_at"))
             .build();
+
+    /** Only the id is read back; callers that need the cycle's name load it themselves. */
+    private static ElectionCycle cycleOf(UUID id) {
+        return id == null ? null : ElectionCycle.builder().id(id).build();
+    }
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -69,6 +79,23 @@ public class SentimentEntryRepository {
         return jdbc.query(
                         SELECT + " WHERE e.voter_id = :voterId AND e.candidate_id = :candidateId",
                         new MapSqlParameterSource().addValue("voterId", voterId).addValue("candidateId", candidateId),
+                        MAPPER)
+                .stream()
+                .findFirst();
+    }
+
+    /**
+     * The entry for this cycle. Re-recording overwrites within a cycle (FR-U10)
+     * but must never reach back and overwrite what a previous cycle captured.
+     */
+    public Optional<SentimentEntry> findForCycle(UUID voterId, UUID candidateId, UUID cycleId) {
+        return jdbc.query(
+                        SELECT + " WHERE e.voter_id = :voterId AND e.candidate_id = :candidateId"
+                                + " AND e.election_cycle_id = :cycleId",
+                        new MapSqlParameterSource()
+                                .addValue("voterId", voterId)
+                                .addValue("candidateId", candidateId)
+                                .addValue("cycleId", cycleId),
                         MAPPER)
                 .stream()
                 .findFirst();
@@ -107,7 +134,10 @@ public class SentimentEntryRepository {
                 .addValue("wardNo", entry.getWardNo())
                 .addValue("recordedById", entry.getRecordedBy().getId())
                 .addValue("recordedAt", timestamp(entry.getRecordedAt()))
-                .addValue("updatedAt", timestamp(entry.getUpdatedAt()));
+                .addValue("updatedAt", timestamp(entry.getUpdatedAt()))
+                .addValue(
+                        "electionCycleId",
+                        entry.getElectionCycle() == null ? null : entry.getElectionCycle().getId());
         if (jdbc.update(UPDATE, params) == 0) {
             jdbc.update(INSERT, params);
         }

@@ -252,6 +252,46 @@ export interface AccountDeletionRequest {
   deletedEntries: number | null;
 }
 
+/** FR-A15: one candidate's standing, computed server-side so the rule lives in one place. */
+export type Verdict = 'POSITIVE' | 'NEGATIVE' | 'NO_DATA';
+export type BoothStatus = 'SAFE' | 'WATCH' | 'AT_RISK' | 'NO_DATA';
+export type SentimentSource = 'ALL' | 'VOTER' | 'HOUSE';
+
+export interface SentimentSplit {
+  positive: number;
+  neutral: number;
+  negative: number;
+  total: number;
+  positivePercent: number;
+  neutralPercent: number;
+  negativePercent: number;
+  netLead: number;
+  verdict: Verdict;
+}
+
+export interface CandidateSentimentRow {
+  unitId: string;
+  unitName: string;
+  unitLevel: UnitLevel;
+  split: SentimentSplit;
+  netLead: number;
+  status: BoothStatus;
+  drillable: boolean;
+}
+
+export interface CandidateSentiment {
+  candidateId: string;
+  candidateName: string;
+  /** The panchayat the candidate contests, when one is mapped. */
+  candidateUnitId: string | null;
+  candidateUnitName: string | null;
+  level: UnitLevel;
+  parentUnitId: string | null;
+  parentUnitPath: string | null;
+  totals: SentimentSplit;
+  rows: CandidateSentimentRow[];
+}
+
 export interface DashboardSummary {
   entriesRecorded: number;
   activeAgents: number;

@@ -6,6 +6,8 @@ import com.kahga.pluse.candidate.entity.Candidate;
 import com.kahga.pluse.candidate.service.CandidateService;
 import com.kahga.pluse.common.exception.BusinessException;
 import com.kahga.pluse.common.exception.NotFoundException;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
+import com.kahga.pluse.electioncycle.service.ElectionCycleService;
 import com.kahga.pluse.housesentiment.dto.HouseInsightsDto;
 import com.kahga.pluse.housesentiment.dto.RecordHouseSentimentRequest;
 import com.kahga.pluse.housesentiment.entity.HouseSentimentEntry;
@@ -37,6 +39,7 @@ public class HouseSentimentService {
     private final AccessRequestService accessRequestService;
     private final CandidateService candidateService;
     private final LocationService locationService;
+    private final ElectionCycleService electionCycleService;
 
     /**
      * Every house recorded for this booth and candidate, whoever recorded it, so
@@ -59,15 +62,19 @@ public class HouseSentimentService {
         Unit booth = locationService.require(payload.boothId());
         String houseNo = normaliseHouseNo(payload.houseNo());
         checkCounts(payload);
+        // Whatever cycle is open now: a new campaign records fresh rows rather
+        // than overwriting what the last one found at this house (FR-A11).
+        ElectionCycle cycle = electionCycleService.current();
 
         Instant now = Instant.now();
         HouseSentimentEntry entry = houseSentimentEntryRepository
-                .findByHouse(booth.getId(), grant.getCandidate().getId(), houseNo)
+                .findByHouse(booth.getId(), grant.getCandidate().getId(), houseNo, cycle.getId())
                 .orElseGet(() -> HouseSentimentEntry.builder()
                         .id(UUID.randomUUID())
                         .recordedAt(now)
                         .build());
 
+        entry.setElectionCycle(cycle);
         entry.setBooth(booth);
         entry.setCandidate(candidate);
         entry.setHouseNo(houseNo);

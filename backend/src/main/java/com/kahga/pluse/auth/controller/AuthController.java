@@ -26,6 +26,12 @@ public class AuthController {
         return ApiResponse.ok(authService.adminLogin(request));
     }
 
+    /** The email and password route, for agents who set one when they signed up. */
+    @PostMapping("/agent/login")
+    public ApiResponse<AuthDtos.AuthResponse> agentLogin(@Valid @RequestBody AuthDtos.LoginRequest request) {
+        return ApiResponse.ok(authService.agentLogin(request));
+    }
+
     @PostMapping("/agent/otp/request")
     public ApiResponse<AuthDtos.OtpSentResponse> requestOtp(@Valid @RequestBody AuthDtos.OtpRequest request) {
         return ApiResponse.ok(authService.requestOtp(request.phone()));

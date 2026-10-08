@@ -4,6 +4,7 @@ import { UserPlus } from 'lucide-react';
 import { Button, ErrorNote, Eyebrow, Field, Heading, Sub, useToast } from '@/shared/components';
 import { colors, fonts } from '@/shared/theme';
 import { authApi } from '../services/authApi';
+import { MIN_PASSWORD_LENGTH } from '../constants';
 
 export function AgentSignupPage() {
   const navigate = useNavigate();
@@ -12,6 +13,8 @@ export function AgentSignupPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,12 +23,27 @@ export function AgentSignupPage() {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setError('Enter a valid email address');
     if (!/^\d{10}$/.test(phone.trim())) return setError('Enter a 10-digit mobile number');
     if (!address.trim()) return setError('Enter your village and panchayat');
+    // Only checked once something has been typed: the password is optional.
+    if (password && password.length < MIN_PASSWORD_LENGTH) {
+      return setError(`A password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
+    if (password !== confirm) return setError('The two passwords do not match');
 
     setBusy(true);
     setError(null);
     try {
-      await authApi.agentSignup({ name: name.trim(), email: email.trim(), phone: phone.trim(), address: address.trim() });
-      notify('Account created — sign in with the OTP sent to your phone');
+      await authApi.agentSignup({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        ...(password ? { password } : {}),
+      });
+      notify(
+        password
+          ? 'Account created — sign in with your email and password'
+          : 'Account created — sign in with the OTP sent to your phone',
+      );
       navigate('/agent/login', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the account');
@@ -60,6 +78,48 @@ export function AgentSignupPage() {
           onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 10))}
         />
         <Field label="Address" placeholder="Village, Panchayat" value={address} onChange={setAddress} />
+
+        <div
+          style={{
+            marginTop: 18,
+            paddingTop: 14,
+            borderTop: `1px solid ${colors.line}`,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: fonts.sans,
+              fontSize: 11,
+              letterSpacing: 0.6,
+              textTransform: 'uppercase',
+              color: colors.inkSoft,
+              marginBottom: 2,
+            }}
+          >
+            Password — optional
+          </div>
+          <div style={{ fontFamily: fonts.sans, fontSize: 12, color: colors.inkSoft, marginBottom: 10 }}>
+            Set one to sign in with your email ID. Leave it blank and you will sign in with an OTP sent to
+            your phone, as before.
+          </div>
+
+          <Field
+            label="Password"
+            placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+            type="password"
+            value={password}
+            onChange={setPassword}
+          />
+          {password && (
+            <Field
+              label="Confirm password"
+              placeholder="Type it again"
+              type="password"
+              value={confirm}
+              onChange={setConfirm}
+            />
+          )}
+        </div>
 
         <Button icon={UserPlus} type="submit" loading={busy} full>
           Create account

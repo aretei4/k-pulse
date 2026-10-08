@@ -220,6 +220,34 @@ route('POST', '/api/auth/admin/login', (req) => {
   return { token: `mock.${admin.id}`, user: admin } satisfies AuthSession;
 });
 
+const DEMO_AGENT_PASSWORD = 'agent123';
+
+/**
+ * Passwords agents have set. The seeded demo agents start with one so the email
+ * route can be tried without signing up first; an agent who signs up and skips
+ * the password gets no entry here, and so cannot sign in this way — which is
+ * what the server does.
+ */
+const agentPasswords = new Map<string, string>(
+  users
+    .filter((u) => u.role === 'FIELD_AGENT' && u.email)
+    .map((u) => [u.email!.toLowerCase(), DEMO_AGENT_PASSWORD] as const),
+);
+
+route('POST', '/api/auth/agent/login', (req) => {
+  const { email, password } = body<{ email: string; password: string }>(req);
+  const key = email?.toLowerCase() ?? '';
+  const agent = users.find((u) => u.role === 'FIELD_AGENT' && u.email?.toLowerCase() === key);
+  // One message however it failed, as on the server: this must not reveal which
+  // email addresses are registered, or which accounts have a password.
+  if (!agent || !agentPasswords.has(key) || password !== agentPasswords.get(key)) {
+    throw new MockError('Invalid email or password', 401);
+  }
+  if (!agent.active) throw new MockError('This account has been deactivated', 403);
+  currentUser = agent;
+  return { token: `mock.${agent.id}`, user: agent } satisfies AuthSession;
+});
+
 route('POST', '/api/auth/agent/otp/request', (req) => {
   const { phone } = body<{ phone: string }>(req);
   const agent = users.find((u) => u.role === 'FIELD_AGENT' && u.phone === phone);
@@ -238,9 +266,12 @@ route('POST', '/api/auth/agent/otp/verify', (req) => {
 });
 
 route('POST', '/api/auth/agent/signup', (req) => {
-  const payload = body<{ name: string; email: string; phone: string; address: string }>(req);
+  const payload = body<{ name: string; email: string; phone: string; address: string; password?: string }>(req);
   if (users.some((u) => u.phone === payload.phone)) {
     throw new MockError('That phone number is already registered', 409);
+  }
+  if (users.some((u) => u.email?.toLowerCase() === payload.email?.toLowerCase())) {
+    throw new MockError('That email is already registered', 409);
   }
   const agent: AuthUser = {
     id: nextId('agent'),
@@ -251,7 +282,15 @@ route('POST', '/api/auth/agent/signup', (req) => {
     active: true,
   };
   users.push(agent);
-  return { message: 'Account created. Sign in with the OTP sent to your phone.', devOtp: DEV_OTP };
+  if (payload.password) {
+    agentPasswords.set(payload.email.toLowerCase(), payload.password);
+  }
+  return {
+    message: payload.password
+      ? 'Account created. Sign in with your email and password, or with the OTP sent to your phone.'
+      : 'Account created. Sign in with the OTP sent to your phone.',
+    devOtp: DEV_OTP,
+  };
 });
 
 route('POST', '/api/auth/logout', () => {
@@ -989,6 +1028,153 @@ route('GET', '/api/admin/house-sentiment/export', (req) => {
     .map((r) => [r.unitName, r.unitLevel, r.houses, r.people, r.residents, r.positive, r.neutral, r.negative].join(','))
     .join('\n');
   return new Blob([`K-Pulse pre-election ${format} report (mock)\n${header}${csv}\n`], { type: 'text/csv' });
+});
+
+/* ------------------------ FR-A15: candidate sentiment ------------------------ */
+
+/** Same rule as the server: positive share minus negative share, neutrals dilute. */
+function splitOf(positive: number, neutral: number, negative: number) {
+  const total = positive + neutral + negative;
+  const pct = (part: number) => (total === 0 ? 0 : (part * 100) / total);
+  const netLead = pct(positive) - pct(negative);
+  return {
+    positive,
+    neutral,
+    negative,
+    total,
+    positivePercent: pct(positive),
+    neutralPercent: pct(neutral),
+    negativePercent: pct(negative),
+    netLead,
+    verdict: total === 0 ? 'NO_DATA' : netLead > 0 ? 'POSITIVE' : 'NEGATIVE',
+  } as const;
+}
+
+function statusOf(split: ReturnType<typeof splitOf>) {
+  if (split.total === 0) return 'NO_DATA';
+  if (split.netLead >= 20) return 'SAFE';
+  return split.netLead >= 5 ? 'WATCH' : 'AT_RISK';
+}
+
+/** Booth tallies for one candidate, from both datasets, as the server combines them. */
+function candidateTallies(candidateId: string, source: string, from?: string | null) {
+  const perBooth = new Map<string, { positive: number; neutral: number; negative: number }>();
+  const bucket = (boothId: string) => {
+    if (!perBooth.has(boothId)) perBooth.set(boothId, { positive: 0, neutral: 0, negative: 0 });
+    return perBooth.get(boothId)!;
+  };
+
+  if (source !== 'HOUSE') {
+    sentimentEntries
+      .filter((e) => e.candidateId === candidateId && (!from || e.recordedAt >= from))
+      .forEach((entry) => {
+        const voter = voters.find((v) => v.id === entry.voterId);
+        if (!voter) return;
+        const tally = bucket(voter.boothId);
+        if (entry.sentiment === 'POSITIVE') tally.positive += 1;
+        else if (entry.sentiment === 'NEUTRAL') tally.neutral += 1;
+        else tally.negative += 1;
+      });
+  }
+  if (source !== 'VOTER') {
+    houseSentimentEntries
+      .filter((h) => h.candidateId === candidateId && (!from || h.recordedAt >= from))
+      .forEach((house) => {
+        const tally = bucket(house.boothId);
+        // People, not houses: a house of six weighs six.
+        tally.positive += house.positiveCount;
+        tally.neutral += house.neutralCount;
+        tally.negative += house.negativeCount;
+      });
+  }
+  return perBooth;
+}
+
+route('GET', '/api/admin/candidate-sentiment/candidates', () => {
+  requireUser();
+  const withData = new Set([
+    ...sentimentEntries.map((e) => e.candidateId),
+    ...houseSentimentEntries.map((h) => h.candidateId),
+  ]);
+  return candidates.filter((c) => withData.has(c.id));
+});
+
+route('GET', '/api/admin/candidate-sentiment/:id', (req, [id]) => {
+  requireUser();
+  const candidate = candidates.find((c) => c.id === id);
+  if (!candidate) throw new MockError('Unknown candidate', 404);
+
+  const asked = q(req, 'level') as UnitLevel | null;
+  // With nothing asked for, start at the panchayat this candidate contests.
+  const startedAtCandidateUnit = !q(req, 'parentUnitId') && !asked && Boolean(candidate.unitId);
+  const parentUnitId = q(req, 'parentUnitId') ?? (startedAtCandidateUnit ? candidate.unitId : null);
+  const source = q(req, 'source') ?? 'ALL';
+  const from = q(req, 'from');
+  const parent = parentUnitId ? unitById(parentUnitId) : undefined;
+
+  const level = ((): UnitLevel => {
+    if (asked) return asked;
+    if (startedAtCandidateUnit) return 'BOOTH';
+    if (!parent) return 'DISTRICT';
+    if (parent.level === 'DISTRICT') return 'BLOCK';
+    if (parent.level === 'BLOCK') return 'PANCHAYAT';
+    return 'BOOTH';
+  })();
+
+  const perBooth = candidateTallies(candidate.id, source, from);
+  const inScope = parentUnitId ? new Set(boothIdsUnder(parentUnitId)) : null;
+
+  const rows = units
+    .filter((u) => u.level === level)
+    .filter((u) => !parentUnitId || boothIdsUnder(u.id).some((b) => inScope!.has(b)))
+    .map((unit) => {
+      const booths = boothIdsUnder(unit.id).filter((b) => !inScope || inScope.has(b));
+      const sum = booths.reduce(
+        (acc, boothId) => {
+          const tally = perBooth.get(boothId);
+          return tally
+            ? {
+                positive: acc.positive + tally.positive,
+                neutral: acc.neutral + tally.neutral,
+                negative: acc.negative + tally.negative,
+              }
+            : acc;
+        },
+        { positive: 0, neutral: 0, negative: 0 },
+      );
+      const split = splitOf(sum.positive, sum.neutral, sum.negative);
+      return {
+        unitId: unit.id,
+        unitName: unit.name,
+        unitLevel: unit.level,
+        split,
+        netLead: split.netLead,
+        status: statusOf(split),
+        drillable: unit.level !== 'BOOTH',
+      };
+    })
+    .filter((row) => boothIdsUnder(row.unitId).length > 0);
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      positive: acc.positive + r.split.positive,
+      neutral: acc.neutral + r.split.neutral,
+      negative: acc.negative + r.split.negative,
+    }),
+    { positive: 0, neutral: 0, negative: 0 },
+  );
+
+  return {
+    candidateId: candidate.id,
+    candidateName: candidate.name,
+    candidateUnitId: candidate.unitId ?? null,
+    candidateUnitName: candidate.unitId ? (unitById(candidate.unitId)?.name ?? null) : null,
+    level,
+    parentUnitId: parentUnitId ?? null,
+    parentUnitPath: parent?.path ?? null,
+    totals: splitOf(totals.positive, totals.neutral, totals.negative),
+    rows,
+  };
 });
 
 /* ------------------------ account deletion (public + admin) ------------------ */

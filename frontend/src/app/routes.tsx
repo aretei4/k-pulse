@@ -7,6 +7,7 @@ import { LandingPage } from '@/features/landing/pages/LandingPage';
 import { DeleteAccountPage } from '@/features/account-deletion/pages/DeleteAccountPage';
 import { AccountDeletionsPage } from '@/features/account-deletion/pages/AccountDeletionsPage';
 import { HouseDashboardPage } from '@/features/house-sentiment/pages/HouseDashboardPage';
+import { CandidateSentimentPage } from '@/features/candidate-sentiment/pages/CandidateSentimentPage';
 import { HouseUnitDetailPage } from '@/features/house-sentiment/pages/HouseUnitDetailPage';
 import { AdminLoginPage } from '@/features/auth/pages/AdminLoginPage';
 import { AgentLoginPage } from '@/features/auth/pages/AgentLoginPage';
@@ -61,6 +62,8 @@ export const router = createBrowserRouter([
       { path: 'account-deletions', element: <AccountDeletionsPage /> },
       { path: 'locations', element: <LocationsPage /> },
       // FR-U12 from the campaign side: house tallies rolled up.
+      // FR-A15: one candidate, their verdict, and the units driving it.
+      { path: 'candidate-sentiment', element: <CandidateSentimentPage /> },
       { path: 'pre-election', element: <HouseDashboardPage /> },
       // The houses behind one row of the pre-election report.
       { path: 'pre-election/unit/:unitId', element: <HouseUnitDetailPage /> },

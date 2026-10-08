@@ -8,6 +8,7 @@ import {
   LogOut,
   MapPin,
   ShieldCheck,
+  ThumbsUp,
   Trash2,
   Users2,
   UserSquare2,
@@ -15,17 +16,33 @@ import {
 import { colors, fonts } from '@/shared/theme';
 import { useAuth } from '@/shared/hooks/useAuth';
 
-const navItems = [
-  { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
-  { to: '/admin/requests', label: 'Access requests', icon: ClipboardList, end: false },
-  { to: '/admin/voter-lists', label: 'Voter lists', icon: FileSpreadsheet, end: false },
-  { to: '/admin/voter-changes', label: 'Change requests', icon: UserSquare2, end: false },
-  { to: '/admin/pre-election', label: 'Pre-election', icon: Home, end: false },
-  { to: '/admin/locations', label: 'Locations', icon: MapPin, end: false },
-  { to: '/admin/users', label: 'Field agents', icon: Users2, end: false },
-  { to: '/admin/admins', label: 'Administrators', icon: ShieldCheck, end: false, superAdminOnly: true },
-  { to: '/admin/account-deletions', label: 'Account deletions', icon: Trash2, end: false },
-  { to: '/admin/reports', label: 'Reports', icon: FileText, end: false },
+/**
+ * FR-A16: two sections. Transaction is the approval queue — work that arrives
+ * and has to be decided. Admin is everything the campaign manages itself.
+ * Anything a role may not use is left out, not greyed out.
+ */
+const navSections = [
+  {
+    label: 'Transaction',
+    items: [
+      { to: '/admin/requests', label: 'Access requests', icon: ClipboardList, end: false },
+      { to: '/admin/voter-changes', label: 'Change requests', icon: UserSquare2, end: false },
+      { to: '/admin/account-deletions', label: 'Account deletions', icon: Trash2, end: false },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
+      { to: '/admin/candidate-sentiment', label: 'Candidate sentiment', icon: ThumbsUp, end: false },
+      { to: '/admin/pre-election', label: 'Pre-election', icon: Home, end: false },
+      { to: '/admin/users', label: 'Field agents', icon: Users2, end: false },
+      { to: '/admin/admins', label: 'Administrators', icon: ShieldCheck, end: false, superAdminOnly: true },
+      { to: '/admin/locations', label: 'Locations', icon: MapPin, end: false },
+      { to: '/admin/voter-lists', label: 'Voter lists', icon: FileSpreadsheet, end: false },
+      { to: '/admin/reports', label: 'Reports', icon: FileText, end: false },
+    ],
+  },
 ];
 
 /**
@@ -64,33 +81,53 @@ export function AdminLayout() {
         </div>
 
         <nav className="kp-admin-nav" style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
-          {navItems
-            .filter((item) => !item.superAdminOnly || user?.role === 'SUPER_ADMIN')
-            .map((item) => {
-            const Icon = item.icon;
+          {navSections.map((section) => {
+            const items = section.items.filter(
+              (item) => !item.superAdminOnly || user?.role === 'SUPER_ADMIN',
+            );
+            if (items.length === 0) return null;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                style={({ isActive }) => ({
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 9,
-                  padding: '9px 10px',
-                  borderRadius: 7,
-                  textDecoration: 'none',
-                  fontFamily: fonts.sans,
-                  fontSize: 13,
-                  fontWeight: isActive ? 600 : 400,
-                  color: isActive ? colors.marigoldDeep : colors.inkSoft,
-                  background: isActive ? colors.marigoldWash : 'transparent',
-                  whiteSpace: 'nowrap',
+              <div key={section.label} style={{ marginBottom: 10 }}>
+                <p
+                  style={{
+                    fontFamily: fonts.mono,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    color: colors.muted,
+                    margin: '6px 10px 4px',
+                  }}
+                >
+                  {section.label}
+                </p>
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      style={({ isActive }) => ({
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 9,
+                        padding: '9px 10px',
+                        borderRadius: 7,
+                        textDecoration: 'none',
+                        fontFamily: fonts.sans,
+                        fontSize: 13,
+                        fontWeight: isActive ? 600 : 400,
+                        color: isActive ? colors.marigoldDeep : colors.inkSoft,
+                        background: isActive ? colors.marigoldWash : 'transparent',
+                        whiteSpace: 'nowrap',
+                      })}
+                    >
+                      <Icon size={15} />
+                      {item.label}
+                    </NavLink>
+                  );
                 })}
-              >
-                <Icon size={15} />
-                {item.label}
-              </NavLink>
+              </div>
             );
           })}
         </nav>

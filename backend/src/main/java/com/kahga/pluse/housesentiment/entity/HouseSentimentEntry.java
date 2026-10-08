@@ -3,6 +3,7 @@ package com.kahga.pluse.housesentiment.entity;
 import com.kahga.pluse.candidate.entity.Candidate;
 import com.kahga.pluse.location.entity.Unit;
 import com.kahga.pluse.sentiment.entity.ConfidenceLevel;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
 import com.kahga.pluse.user.entity.User;
 import java.time.Instant;
 import java.util.UUID;
@@ -51,6 +52,9 @@ public class HouseSentimentEntry {
     private int negativeCount;
 
     private ConfidenceLevel confidence;
+
+    /** The cycle this was recorded in; a new cycle starts fresh rows (FR-A11). */
+    private ElectionCycle electionCycle;
 
     private User recordedBy;
 

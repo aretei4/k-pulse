@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "245978458200",
+    "firebase_url": "https://bakikhata-735fb-default-rtdb.firebaseio.com",
+    "project_id": "bakikhata-735fb",
+    "storage_bucket": "bakikhata-735fb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:245978458200:android:578d9fcf9446f7e3b6c22d",
+        "android_client_info": {
+          "package_name": "com.kahga.kpulse.field"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDa2yTlN6sLetn4jrk3eTVoZU5qWvIWT2g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:245978458200:android:4328631c29bc1669b6c22d",
+        "android_client_info": {
+          "package_name": "com.khaga.mobile.bakikhata"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDa2yTlN6sLetn4jrk3eTVoZU5qWvIWT2g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

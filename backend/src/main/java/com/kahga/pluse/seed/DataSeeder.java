@@ -7,6 +7,8 @@ import com.kahga.pluse.accessrequest.repository.AccessRequestRepository;
 import com.kahga.pluse.candidate.entity.Candidate;
 import com.kahga.pluse.candidate.repository.CandidateRepository;
 import com.kahga.pluse.config.KPulseProperties;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
+import com.kahga.pluse.electioncycle.service.ElectionCycleService;
 import com.kahga.pluse.location.entity.Unit;
 import com.kahga.pluse.location.entity.UnitLevel;
 import com.kahga.pluse.location.repository.UnitRepository;
@@ -72,6 +74,7 @@ public class DataSeeder implements ApplicationRunner {
     private final VoterRepository voterRepository;
     private final AccessRequestRepository accessRequestRepository;
     private final SentimentEntryRepository sentimentEntryRepository;
+    private final ElectionCycleService electionCycleService;
     private final VoterChangeRequestRepository voterChangeRequestRepository;
 
     private final Random random = new Random(20260909L);
@@ -169,6 +172,8 @@ public class DataSeeder implements ApplicationRunner {
                 .filter(v -> v.getBooth().getId().equals(booths.get(0).getId()))
                 .toList();
         List<SentimentEntry> entries = new ArrayList<>();
+        // Seeded data belongs to the cycle the migration opened (FR-A11).
+        ElectionCycle cycle = electionCycleService.current();
         for (int i = 0; i < firstBooth.size() * 3 / 4; i++) {
             Voter voter = firstBooth.get(i);
             double roll = random.nextDouble();
@@ -177,6 +182,7 @@ public class DataSeeder implements ApplicationRunner {
                     : SentimentValue.NEGATIVE;
             Instant recordedAt = Instant.now().minus(1 + random.nextInt(20), ChronoUnit.DAYS);
             entries.add(SentimentEntry.builder()
+                    .electionCycle(cycle)
                     .id(UUID.randomUUID())
                     .voter(voter)
                     .candidate(mohanty)

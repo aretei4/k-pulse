@@ -8,6 +8,7 @@ import static com.kahga.pluse.common.jdbc.JdbcSupport.timestamp;
 import static com.kahga.pluse.common.jdbc.JdbcSupport.uuid;
 
 import com.kahga.pluse.candidate.repository.CandidateRepository;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
 import com.kahga.pluse.housesentiment.entity.HouseSentimentEntry;
 import com.kahga.pluse.housesentiment.dto.HouseInsightsDto;
 import com.kahga.pluse.location.entity.Unit;
@@ -36,6 +37,7 @@ public class HouseSentimentEntryRepository {
     private static final String SELECT = """
             SELECT h.id, h.booth_id, h.house_no, h.house_name, h.ward_no, h.headcount, h.residential_count,
                    h.positive_count, h.neutral_count, h.negative_count, h.confidence, h.recorded_at, h.updated_at,
+                   h.election_cycle_id,
                    %s,
                    %s
               FROM house_sentiment_entry h
@@ -46,9 +48,11 @@ public class HouseSentimentEntryRepository {
     private static final String INSERT = """
             INSERT INTO house_sentiment_entry
                    (id, booth_id, candidate_id, house_no, house_name, ward_no, headcount, residential_count,
-                    positive_count, neutral_count, negative_count, confidence, recorded_by_id, recorded_at, updated_at)
+                    positive_count, neutral_count, negative_count, confidence, recorded_by_id, recorded_at, updated_at,
+                    election_cycle_id)
             VALUES (:id, :boothId, :candidateId, :houseNo, :houseName, :wardNo, :headcount, :residentialCount,
-                    :positiveCount, :neutralCount, :negativeCount, :confidence, :recordedById, :recordedAt, :updatedAt)
+                    :positiveCount, :neutralCount, :negativeCount, :confidence, :recordedById, :recordedAt, :updatedAt,
+                    :electionCycleId)
             """;
 
     private static final String UPDATE = """
@@ -57,7 +61,7 @@ public class HouseSentimentEntryRepository {
                    ward_no = :wardNo, headcount = :headcount, residential_count = :residentialCount,
                    positive_count = :positiveCount, neutral_count = :neutralCount, negative_count = :negativeCount,
                    confidence = :confidence, recorded_by_id = :recordedById, recorded_at = :recordedAt,
-                   updated_at = :updatedAt
+                   updated_at = :updatedAt, election_cycle_id = :electionCycleId
              WHERE id = :id
             """;
 
@@ -75,10 +79,16 @@ public class HouseSentimentEntryRepository {
             .neutralCount(rs.getInt("neutral_count"))
             .negativeCount(rs.getInt("negative_count"))
             .confidence(enumValue(rs, "confidence", ConfidenceLevel.class))
+            .electionCycle(cycleOf(uuid(rs, "election_cycle_id")))
             .recordedBy(UserRepository.map(rs, "recorded_by_"))
             .recordedAt(instant(rs, "recorded_at"))
             .updatedAt(instant(rs, "updated_at"))
             .build();
+
+    /** Only the id is read back; callers that need the cycle's name load it themselves. */
+    private static ElectionCycle cycleOf(UUID id) {
+        return id == null ? null : ElectionCycle.builder().id(id).build();
+    }
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -95,15 +105,16 @@ public class HouseSentimentEntryRepository {
                 .findFirst();
     }
 
-    public Optional<HouseSentimentEntry> findByHouse(UUID boothId, UUID candidateId, String houseNo) {
+    public Optional<HouseSentimentEntry> findByHouse(UUID boothId, UUID candidateId, String houseNo, UUID cycleId) {
         return jdbc
                 .query(
                         SELECT + " WHERE h.booth_id = :boothId AND h.candidate_id = :candidateId"
-                                + " AND h.house_no = :houseNo",
+                                + " AND h.house_no = :houseNo AND h.election_cycle_id = :cycleId",
                         new MapSqlParameterSource()
                                 .addValue("boothId", boothId)
                                 .addValue("candidateId", candidateId)
-                                .addValue("houseNo", houseNo),
+                                .addValue("houseNo", houseNo)
+                                .addValue("cycleId", cycleId),
                         MAPPER)
                 .stream()
                 .findFirst();
@@ -133,7 +144,10 @@ public class HouseSentimentEntryRepository {
                 .addValue("confidence", name(entry.getConfidence()))
                 .addValue("recordedById", entry.getRecordedBy().getId())
                 .addValue("recordedAt", timestamp(entry.getRecordedAt()))
-                .addValue("updatedAt", timestamp(entry.getUpdatedAt()));
+                .addValue("updatedAt", timestamp(entry.getUpdatedAt()))
+                .addValue(
+                        "electionCycleId",
+                        entry.getElectionCycle() == null ? null : entry.getElectionCycle().getId());
         if (jdbc.update(UPDATE, params) == 0) {
             jdbc.update(INSERT, params);
         }

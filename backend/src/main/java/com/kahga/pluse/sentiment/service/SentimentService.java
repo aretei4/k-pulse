@@ -5,6 +5,8 @@ import com.kahga.pluse.accessrequest.service.AccessRequestService;
 import com.kahga.pluse.candidate.entity.Candidate;
 import com.kahga.pluse.candidate.service.CandidateService;
 import com.kahga.pluse.common.exception.BusinessException;
+import com.kahga.pluse.electioncycle.entity.ElectionCycle;
+import com.kahga.pluse.electioncycle.service.ElectionCycleService;
 import com.kahga.pluse.sentiment.dto.RecordSentimentRequest;
 import com.kahga.pluse.sentiment.entity.SentimentEntry;
 import com.kahga.pluse.sentiment.repository.SentimentEntryRepository;
@@ -27,6 +29,7 @@ public class SentimentService {
     private final VoterService voterService;
     private final CandidateService candidateService;
     private final AccessRequestService accessRequestService;
+    private final ElectionCycleService electionCycleService;
 
     public Optional<SentimentEntry> find(UUID voterId, UUID candidateId) {
         return candidateId == null
@@ -53,10 +56,11 @@ public class SentimentService {
                     "Your access to this booth records sentiment for " + grant.getCandidate().getName());
         }
         Candidate candidate = candidateService.require(payload.candidateId());
+        ElectionCycle cycle = electionCycleService.current();
 
         Instant now = Instant.now();
         SentimentEntry entry = sentimentEntryRepository
-                .findByVoterIdAndCandidateId(voter.getId(), candidate.getId())
+                .findForCycle(voter.getId(), candidate.getId(), cycle.getId())
                 .orElseGet(() -> SentimentEntry.builder()
                         .id(UUID.randomUUID())
                         .voter(voter)
@@ -64,6 +68,7 @@ public class SentimentService {
                         .recordedBy(agent)
                         .recordedAt(now)
                         .build());
+        entry.setElectionCycle(cycle);
 
         entry.setSentiment(payload.sentiment());
         entry.setConfidence(payload.confidence());

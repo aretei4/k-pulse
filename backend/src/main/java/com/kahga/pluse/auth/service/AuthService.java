@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.function.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -36,18 +37,35 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthDtos.AuthResponse adminLogin(AuthDtos.LoginRequest request) {
-        User admin = userRepository
+        // Both admin kinds sign in here; the roles differ in what they may do, not how they get in.
+        return signInWithPassword(request, user -> user.getRole().isAdminKind());
+    }
+
+    /**
+     * An agent signing in with the email they registered and the password they
+     * chose. Agents who never set one still sign in with an OTP, and get the
+     * same answer as a wrong password here rather than being told their account
+     * exists but has no password.
+     */
+    @Transactional(readOnly = true)
+    public AuthDtos.AuthResponse agentLogin(AuthDtos.LoginRequest request) {
+        return signInWithPassword(request, user -> user.getRole() == Role.FIELD_AGENT);
+    }
+
+    private AuthDtos.AuthResponse signInWithPassword(AuthDtos.LoginRequest request, Predicate<User> allowed) {
+        User account = userRepository
                 .findByEmailIgnoreCase(request.email())
-                // Both admin kinds sign in here; the roles differ in what they may do, not how they get in.
-                .filter(user -> user.getRole().isAdminKind())
+                .filter(allowed)
                 .filter(user -> user.getPasswordHash() != null)
                 .filter(user -> passwordEncoder.matches(request.password(), user.getPasswordHash()))
+                // One message whichever of those failed, so this cannot be used to
+                // find out which email addresses are registered.
                 .orElseThrow(() -> new BusinessException("Invalid email or password", HttpStatus.UNAUTHORIZED));
 
-        if (!admin.isActive()) {
+        if (!account.isActive()) {
             throw new BusinessException("This account has been deactivated", HttpStatus.FORBIDDEN);
         }
-        return new AuthDtos.AuthResponse(tokenProvider.issue(admin), UserDto.from(admin));
+        return new AuthDtos.AuthResponse(tokenProvider.issue(account), UserDto.from(account));
     }
 
     @Transactional
@@ -113,14 +131,19 @@ public class AuthService {
                 .email(request.email().trim().toLowerCase())
                 .phone(request.phone())
                 .address(request.address())
+                .passwordHash(request.wantsPassword() ? passwordEncoder.encode(request.password()) : null)
                 .role(Role.FIELD_AGENT)
                 .active(true)
                 .createdAt(Instant.now())
                 .build();
         userRepository.save(agent);
 
+        // The OTP is still sent either way: a password is a second way in, not a
+        // replacement, and an agent who mistypes it should not be locked out.
         AuthDtos.OtpSentResponse otp = requestOtp(agent.getPhone());
-        return new AuthDtos.SignupResponse(
-                "Account created. Sign in with the OTP sent to your phone.", otp.devOtp());
+        String message = request.wantsPassword()
+                ? "Account created. Sign in with your email and password, or with the OTP sent to your phone."
+                : "Account created. Sign in with the OTP sent to your phone.";
+        return new AuthDtos.SignupResponse(message, otp.devOtp());
     }
 }

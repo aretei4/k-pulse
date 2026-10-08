@@ -17,6 +17,50 @@ auto-fill hooks. What does *not*: any screen, any API call, any business rule.
 | `demo` | `https://direco.co.in/kpulse/agent?demo=1` | K-Pulse Demo |
 | `debug` | `http://10.0.2.2:5173/kpulse/agent` — the Vite dev server as seen from an emulator | K-Pulse Field |
 
+### Firebase Remote Config overrides it
+
+At launch the app asks Firebase Remote Config for the URL and falls back to the
+`AGENT_URL` above. That way the WebView can be pointed somewhere else — a new
+host, a staging cut-over, a maintenance page — without shipping an APK and
+waiting on Play review.
+
+| Build type | Remote Config key |
+|---|---|
+| `release`, `debug` | `agent_url` |
+| `demo` | `agent_url_demo` |
+
+The demo build reads its own key on purpose: moving the live app must not drag
+the hand-out demo off the mock data it exists to show.
+
+**The app works with no Firebase at all.** The google-services plugin is applied
+only when `app/google-services.json` exists, so until you add it the build runs
+and every launch uses `AGENT_URL`. To turn Remote Config on:
+
+1. In the Firebase console, create a project and add an Android app for
+   **`com.kahga.kpulse.field`** — and a second one for
+   **`com.kahga.kpulse.field.demo`** if you want to steer the demo build too.
+2. Download `google-services.json` and put it in `mobile/app/`. Keep it out of
+   git if the repo is public: it is not a secret, but it identifies the project.
+3. Rebuild. The plugin picks itself up automatically.
+4. In Remote Config, add the key above with the full `https://…/kpulse/agent`
+   URL and publish.
+
+Rules the app applies to whatever comes back:
+
+- **https with a real host, or it is ignored.** A console typo, an `http://`
+  value or a `javascript:` string leaves the app on the URL it already had —
+  otherwise one bad edit would brick every install at once, including the apps
+  that would need a later edit to recover.
+- **The page loads first, then the fetch happens.** The WebView starts on the
+  last known good URL (Remote Config's cache, else the build's), so a slow or
+  failed fetch never leaves an agent looking at a blank screen. The page is
+  reloaded only if the fetch actually returns a *different* usable URL.
+- **Release builds use Firebase's hourly throttle**; debug and demo builds fetch
+  on every launch, so a change shows up immediately while you are testing.
+
+The URL rules are unit tested in `app/src/test/.../AgentUrlTest.kt`
+(`./gradlew :app:testDebugUnitTest`).
+
 ## The demo build
 
 ```bash
