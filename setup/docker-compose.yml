@@ -1,0 +1,49 @@
+version: '3'
+
+services:
+
+  nginx:
+    image: nginx:alpine
+    container_name: n8n-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # allows nginx to reach host IP
+    volumes:
+      - ./nginx:/etc/nginx/conf.d
+      - /etc/letsencrypt/live/direco.co.in/fullchain.pem:/etc/ssl/direco/fullchain.pem
+      - /etc/letsencrypt/live/direco.co.in/privkey.pem:/etc/ssl/direco/privkey.pem
+      - /etc/letsencrypt/live/device4autism.in/fullchain.pem:/etc/ssl/cricket/fullchain.pem
+      - /etc/letsencrypt/live/device4autism.in/privkey.pem:/etc/ssl/cricket/privkey.pem
+      - ./dist:/var/www/distr/build/dist
+      - /home/ubuntu/cricket/dist:/var/www/cricket/build/dist
+      - /home/ubuntu/kpulse/dist:/var/www/kpulse/build/dist 
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - app-network
+
+  postgres_db:
+    image: postgres:15
+    container_name: postgres_db
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Sachi@2010
+      POSTGRES_DB: distr
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    external: true
+    name: db_postgres_data
