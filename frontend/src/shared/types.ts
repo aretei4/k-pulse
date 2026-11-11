@@ -22,6 +22,9 @@ export type VoterChangeStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export type Gender = 'M' | 'F' | 'OTHER';
 
+/** Reservation categories, not individual caste names. See shared/utils/caste. */
+export type Caste = 'GENERAL' | 'SEBC' | 'SC' | 'ST' | 'MINORITY' | 'OTHER';
+
 export interface AuthUser {
   id: string;
   name: string;
@@ -29,6 +32,12 @@ export interface AuthUser {
   phone: string | null;
   role: Role;
   active: boolean;
+  /** FR-U13: field agents only — whether they may download a booth's voter list. */
+  downloadEnabled?: boolean;
+  /** FA-25: an admin has set a temporary password; choose a new one before anything else. */
+  mustChangePassword?: boolean;
+  /** FR-U14: whether this agent has the Reports page. The server checks again on every call. */
+  reportsEnabled?: boolean;
   /** Set on ADMIN accounts only — a super admin sees every unit, an agent has none (FR-A9). */
   scopeLevel?: UnitLevel | null;
   scopeUnitId?: string | null;
@@ -72,6 +81,8 @@ export interface Voter {
   boothId: string;
   boothName: string;
   wardNo: number | null;
+  /** The agent's finding; null until one records it, since the roll has no caste. */
+  caste: Caste | null;
   sentiment: SentimentValue | null;
   confidence: ConfidenceLevel | null;
 }
@@ -155,6 +166,109 @@ export interface VoterChangePayload {
   reason?: string;
 }
 
+/** FR-A20: what the Field agents page says about an agent's access. */
+export type AgentAccessState = 'APPROVED' | 'PENDING' | 'EXPIRED' | 'NONE';
+
+export type PaymentMode = 'UPI' | 'BANK' | 'CASH';
+
+/** One row of the Field agents page, and everything its detail panel shows. */
+export interface FieldAgent {
+  id: string;
+  /** The readable id, A-00272. */
+  agentCode: string | null;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  /** Who the agent said sent them, at sign-up. Null for most. */
+  referralNo: string | null;
+  active: boolean;
+  /** The unit the grant behind Area and Access was given for. */
+  areaUnitId: string | null;
+  panchayatName: string | null;
+  blockName: string | null;
+  districtName: string | null;
+  candidateName: string | null;
+  access: AgentAccessState;
+  accessExpiresAt: string | null;
+  votersRecorded: number;
+  lastActive: string | null;
+  joined: string | null;
+  downloadEnabled: boolean;
+  /** FR-A22: whether the agent has the Reports page in the app. */
+  reportsEnabled: boolean;
+  /** FA-25: whether a password exists at all. Never the password. */
+  passwordSet: boolean;
+  mustChangePassword: boolean;
+  /** FA-24: when the agent asked for a reset; null when nobody is waiting. */
+  passwordResetRequestedAt: string | null;
+  paid: boolean;
+  paidAmount: number | null;
+  paidOn: string | null;
+  paidMode: PaymentMode | null;
+  paidRef: string | null;
+  paidUpdatedAt: string | null;
+  paidUpdatedByName: string | null;
+}
+
+/** The agent's own view of their sign-in (FA-24). */
+export interface AgentPasswordStatus {
+  passwordSet: boolean;
+  mustChangePassword: boolean;
+  resetRequestedAt: string | null;
+}
+
+/** FR-U14: one panchayat an agent may report on, and the candidate it was approved for. */
+export interface AgentReportScope {
+  panchayatId: string;
+  panchayatName: string;
+  blockName: string | null;
+  districtName: string | null;
+  candidateId: string;
+  candidateName: string;
+  expiresAt: string | null;
+  booths: Array<{ id: string; name: string }>;
+  wards: number[];
+}
+
+export interface AgentReportRow {
+  boothId: string;
+  boothName: string;
+  positive: number;
+  neutral: number;
+  negative: number;
+  /** Roll minus everyone with an entry at all — never narrowed by the date or confidence choice. */
+  notRecorded: number;
+  voters: number;
+}
+
+export interface AgentReport {
+  booths: AgentReportRow[];
+  /** The agent's booths together, not the whole panchayat. */
+  totals: AgentReportRow;
+  boothCount: number;
+}
+
+export interface FieldAgentPage {
+  items: FieldAgent[];
+  page: number;
+  size: number;
+  /** Matching the current filters, the payment tab included. */
+  total: number;
+  /** The three tab counts, taken across every filter but the payment one. */
+  allCount: number;
+  paidCount: number;
+  unpaidCount: number;
+  totalPages: number;
+}
+
+/** One dropdown option: "Bhadrak (1,415)". */
+export interface AreaCount {
+  unitId: string;
+  name: string;
+  agents: number;
+}
+
 export interface VoterUpload {
   id: string;
   fileName: string;
@@ -176,6 +290,8 @@ export interface SentimentSummary {
   negative: number;
   notRecorded: number;
   total: number;
+  /** Recorded against someone found living elsewhere; reported whether or not they are counted above. */
+  nonResident: number;
 }
 
 export interface ConfidenceSummary {

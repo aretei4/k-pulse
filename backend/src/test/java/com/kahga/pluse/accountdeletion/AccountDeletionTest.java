@@ -181,12 +181,20 @@ class AccountDeletionTest {
                 .build());
     }
 
-    /** The same, with an approved booth so there is recorded work to erase. */
+    /**
+     * The same, with an approved panchayat so there is recorded work to erase.
+     * A grant covers every booth under it, and the panchayat is the only level
+     * an agent may ask for.
+     */
     private User agentWithABooth() {
         User agent = newAgent();
-        UUID boothId = unitRepository.findByLevelOrderByNameAsc(UnitLevel.BOOTH).get(0).getId();
-        UUID candidateId = accessRequestService.list(null).get(0).getCandidate().getId();
-        var request = accessRequestService.create(agent, new CreateAccessRequestDto(boothId, candidateId));
+        UUID panchayatId = unitRepository
+                .findByLevelOrderByNameAsc(UnitLevel.BOOTH)
+                .get(0)
+                .getParent()
+                .getId();
+        String candidateName = accessRequestService.list(null).get(0).getCandidate().getName();
+        var request = accessRequestService.create(agent, new CreateAccessRequestDto(panchayatId, candidateName));
         accessRequestService.approve(request.getId(), 6, null);
         return agent;
     }

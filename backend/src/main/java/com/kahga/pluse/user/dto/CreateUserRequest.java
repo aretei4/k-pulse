@@ -7,4 +7,6 @@ import jakarta.validation.constraints.Pattern;
 public record CreateUserRequest(
         @NotBlank String name,
         @NotBlank @Email String email,
-        @NotBlank @Pattern(regexp = "\\d{10}", message = "must be a 10-digit number") String phone) {}
+        @NotBlank @Pattern(regexp = "\\d{10}", message = "must be a 10-digit number") String phone,
+        /** Optional: the mobile number of whoever referred this agent. */
+        String referralNo) {}

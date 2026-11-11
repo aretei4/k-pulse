@@ -1,13 +1,24 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { BarChart3, Home, LogOut, Users } from 'lucide-react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { BarChart3, FileText, Home, LogOut, Users } from 'lucide-react';
 import { colors, fonts } from '@/shared/theme';
 import { useAuth } from '@/shared/hooks/useAuth';
+import { ForcedPasswordChange } from '@/features/agent-status/components/ForcedPasswordChange';
 
 const navItems = [
   { to: '/agent/voters', label: 'Voters', icon: Users, end: false },
   { to: '/agent/insights', label: 'Insights', icon: BarChart3, end: false },
+  // AG-1: only for an agent an admin has given the Reports page to. The server
+  // refuses the calls either way; this keeps a tab that would 403 off screen.
+  { to: '/agent/reports', label: 'Reports', icon: FileText, end: false, needsReports: true },
   { to: '/agent/status', label: 'Status', icon: Home, end: false },
 ];
+
+/**
+ * Downloading a list is reached from Insights and belongs to it, but its route
+ * sits under /agent/voters because that is the data it prints. Left to the
+ * paths alone the wrong tab would light up, so this one is named.
+ */
+const DOWNLOAD_PATH = '/agent/voters/download';
 
 /**
  * The agent shell. It fills a phone WebView edge to edge and centres itself on
@@ -16,6 +27,7 @@ const navItems = [
 export function AgentLayout() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
   return (
     <div style={{ minHeight: '100dvh', background: colors.paper, display: 'flex', justifyContent: 'center' }}>
@@ -62,7 +74,10 @@ export function AgentLayout() {
         </header>
 
         <main style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }} className="kp-fade">
-          <Outlet />
+          {/* FA-25: a password an admin set is temporary. Until it is replaced
+              this is the only screen the agent gets, which is the whole point
+              of letting an admin choose an easy one. */}
+          {user?.mustChangePassword ? <ForcedPasswordChange /> : <Outlet />}
         </main>
 
         <nav
@@ -75,8 +90,13 @@ export function AgentLayout() {
             bottom: 0,
           }}
         >
-          {navItems.map((item) => {
+          {navItems
+            .filter((item) => !item.needsReports || user?.reportsEnabled)
+            .map((item) => {
             const Icon = item.icon;
+            const downloading = pathname === DOWNLOAD_PATH;
+            const active = (match: boolean) =>
+              downloading ? item.to === '/agent/insights' : match;
             return (
               <NavLink
                 key={item.to}
@@ -90,13 +110,15 @@ export function AgentLayout() {
                   gap: 2,
                   padding: '9px 0 8px',
                   textDecoration: 'none',
-                  color: isActive ? colors.marigoldDeep : colors.inkSoft,
+                  color: active(isActive) ? colors.marigoldDeep : colors.inkSoft,
                 })}
               >
                 {({ isActive }) => (
                   <>
-                    <Icon size={16} strokeWidth={isActive ? 2.4 : 2} />
-                    <span style={{ fontFamily: fonts.sans, fontSize: 10, fontWeight: isActive ? 600 : 400 }}>
+                    <Icon size={16} strokeWidth={active(isActive) ? 2.4 : 2} />
+                    <span
+                      style={{ fontFamily: fonts.sans, fontSize: 10, fontWeight: active(isActive) ? 600 : 400 }}
+                    >
                       {item.label}
                     </span>
                   </>

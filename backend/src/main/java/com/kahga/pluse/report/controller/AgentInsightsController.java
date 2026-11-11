@@ -28,7 +28,9 @@ public class AgentInsightsController {
 
     @GetMapping
     public ApiResponse<ReportResponse> insights(
-            @RequestParam(required = false) UUID boothId, @RequestParam(required = false) UUID candidateId) {
+            @RequestParam(required = false) UUID boothId,
+            @RequestParam(required = false) UUID candidateId,
+            @RequestParam(defaultValue = "false") boolean residentsOnly) {
 
         UUID agentId = currentUserService.user().getId();
         Set<UUID> scope;
@@ -40,7 +42,7 @@ public class AgentInsightsController {
         }
 
         ReportFilterRequest filter =
-                new ReportFilterRequest(UnitLevel.BOOTH, null, candidateId, null, null, null, null);
+                new ReportFilterRequest(UnitLevel.BOOTH, null, candidateId, null, null, null, null, residentsOnly);
         return ApiResponse.ok(aggregationService.report(filter, scope));
     }
 }

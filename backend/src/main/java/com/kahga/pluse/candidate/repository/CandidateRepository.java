@@ -79,6 +79,16 @@ public class CandidateRepository {
                 .findFirst();
     }
 
+    /** Names are unique ignoring case, so this is a lookup by key, not a search. */
+    public Optional<Candidate> findByNameIgnoreCase(String name) {
+        return jdbc.query(
+                        SELECT + " WHERE LOWER(c.name) = LOWER(:name)",
+                        new MapSqlParameterSource("name", name),
+                        MAPPER)
+                .stream()
+                .findFirst();
+    }
+
     public Candidate save(Candidate candidate) {
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("id", candidate.getId())

@@ -14,7 +14,7 @@ export interface CreateAdminPayload {
 export const usersApi = {
   list: (role: Role | 'ALL' = 'FIELD_AGENT') => request<AuthUser[]>('/api/admin/users', { query: { role } }),
 
-  create: (payload: { name: string; email: string; phone: string }) =>
+  create: (payload: { name: string; email: string; phone: string; referralNo?: string }) =>
     request<AuthUser>('/api/admin/users', { method: 'POST', body: { ...payload, role: 'FIELD_AGENT' } }),
 
   /** Admin + super-admin accounts; the server refuses this to anyone but a super admin. */
@@ -31,4 +31,8 @@ export const usersApi = {
 
   setActive: (id: string, active: boolean) =>
     request<AuthUser>(`/api/admin/users/${id}/status`, { method: 'PATCH', body: { active } }),
+
+  /** FR-U13 / DL-13. Off for a new agent; a scoped admin may only reach their own. */
+  setDownloadEnabled: (id: string, enabled: boolean) =>
+    request<AuthUser>(`/api/admin/agents/${id}/download-enabled`, { method: 'PUT', body: { enabled } }),
 };

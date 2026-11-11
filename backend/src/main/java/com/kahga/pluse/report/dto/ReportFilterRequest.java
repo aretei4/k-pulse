@@ -17,7 +17,14 @@ public record ReportFilterRequest(
         SentimentValue sentiment,
         ConfidenceLevel confidence,
         Instant from,
-        Instant to) {
+        Instant to,
+        /**
+         * Leave out the entries recorded against a voter the agent found living
+         * elsewhere. Those voters stay on the roll and are still counted in it;
+         * what they are left out of is the sentiment split, which is the only
+         * part their opinion was ever in.
+         */
+        boolean residentsOnly) {
 
     public UnitLevel levelOrDefault() {
         return level == null ? UnitLevel.BOOTH : level;

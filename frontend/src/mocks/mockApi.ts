@@ -1,7 +1,12 @@
 import { isAdminRole } from '@/shared/types';
+import { formatShortDate } from '@/shared/utils/format';
 import type {
   AccessRequest,
   AccountDeletionRequest,
+  AgentAccessState,
+  FieldAgent,
+  FieldAgentPage,
+  PaymentMode,
   Candidate,
   HouseEntryRow,
   HouseUnitSummary,
@@ -24,6 +29,8 @@ import {
   accessRequests,
   accountDeletionRequests,
   addMonths,
+  agentExtras,
+  registerAgentExtra,
   booths,
   candidates,
   houseSentimentEntries,
@@ -131,6 +138,8 @@ interface SummaryFilters {
   confidence?: string;
   from?: string;
   to?: string;
+  /** Leave out entries recorded against a voter living elsewhere (agent Insights). */
+  residentsOnly?: boolean;
 }
 
 function entriesMatching(filters: SummaryFilters) {
@@ -163,9 +172,13 @@ function summarise(level: UnitLevel, filters: SummaryFilters, restrictToBooths?:
         return bid ? boothSet.has(bid) : false;
       });
       const totalVoters = voters.filter((v) => boothSet.has(v.boothId)).length;
-      const positive = scoped.filter((e) => e.sentiment === 'POSITIVE').length;
-      const neutral = scoped.filter((e) => e.sentiment === 'NEUTRAL').length;
-      const negative = scoped.filter((e) => e.sentiment === 'NEGATIVE').length;
+      const nonResident = scoped.filter((e) => !e.resident).length;
+      // The split counts whoever the residence choice admits; "left to do" counts
+      // everyone already visited either way, and the roll loses the rest.
+      const counted = filters.residentsOnly ? scoped.filter((e) => e.resident) : scoped;
+      const positive = counted.filter((e) => e.sentiment === 'POSITIVE').length;
+      const neutral = counted.filter((e) => e.sentiment === 'NEUTRAL').length;
+      const negative = counted.filter((e) => e.sentiment === 'NEGATIVE').length;
       return {
         unitId: unit.id,
         unitName: unit.name,
@@ -174,18 +187,21 @@ function summarise(level: UnitLevel, filters: SummaryFilters, restrictToBooths?:
         neutral,
         negative,
         notRecorded: Math.max(0, totalVoters - scoped.length),
-        total: totalVoters,
+        total: Math.max(0, totalVoters - (filters.residentsOnly ? nonResident : 0)),
+        nonResident,
       } satisfies SentimentSummary;
     })
     .filter((s): s is SentimentSummary => s !== null);
 }
 
 function confidenceSummary(filters: SummaryFilters, restrictToBooths?: Set<string>): ConfidenceSummary {
-  const entries = entriesMatching(filters).filter((e) => {
-    if (!restrictToBooths) return true;
-    const bid = voterBoothId(e.voterId);
-    return bid ? restrictToBooths.has(bid) : false;
-  });
+  const entries = entriesMatching(filters)
+    .filter((e) => !filters.residentsOnly || e.resident)
+    .filter((e) => {
+      if (!restrictToBooths) return true;
+      const bid = voterBoothId(e.voterId);
+      return bid ? restrictToBooths.has(bid) : false;
+    });
   return {
     high: entries.filter((e) => e.confidence === 'HIGH').length,
     medium: entries.filter((e) => e.confidence === 'MEDIUM').length,
@@ -223,6 +239,19 @@ route('POST', '/api/auth/admin/login', (req) => {
 const DEMO_AGENT_PASSWORD = 'agent123';
 
 /**
+ * The user as the server hands it back at sign-in. The flag matters: a password
+ * an admin reset sends the agent to the change-password screen and nowhere else
+ * (FA-25), and the mock has to say so or that screen is never seen in demo mode.
+ */
+function signedIn(agent: AuthUser): AuthUser {
+  return {
+    ...agent,
+    mustChangePassword: Boolean(agentExtras[agent.id]?.mustChangePassword),
+    reportsEnabled: Boolean(agentExtras[agent.id]?.reportsEnabled),
+  };
+}
+
+/**
  * Passwords agents have set. The seeded demo agents start with one so the email
  * route can be tried without signing up first; an agent who signs up and skips
  * the password gets no entry here, and so cannot sign in this way — which is
@@ -244,8 +273,8 @@ route('POST', '/api/auth/agent/login', (req) => {
     throw new MockError('Invalid email or password', 401);
   }
   if (!agent.active) throw new MockError('This account has been deactivated', 403);
-  currentUser = agent;
-  return { token: `mock.${agent.id}`, user: agent } satisfies AuthSession;
+  currentUser = signedIn(agent);
+  return { token: `mock.${agent.id}`, user: currentUser } satisfies AuthSession;
 });
 
 route('POST', '/api/auth/agent/otp/request', (req) => {
@@ -261,12 +290,19 @@ route('POST', '/api/auth/agent/otp/verify', (req) => {
   const agent = users.find((u) => u.role === 'FIELD_AGENT' && u.phone === phone);
   if (!agent) throw new MockError('No agent registered with that number', 404);
   if (otp !== DEV_OTP) throw new MockError('That OTP does not match', 401);
-  currentUser = agent;
-  return { token: `mock.${agent.id}`, user: agent } satisfies AuthSession;
+  currentUser = signedIn(agent);
+  return { token: `mock.${agent.id}`, user: currentUser } satisfies AuthSession;
 });
 
 route('POST', '/api/auth/agent/signup', (req) => {
-  const payload = body<{ name: string; email: string; phone: string; address: string; password?: string }>(req);
+  const payload = body<{
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    referralNo?: string;
+    password?: string;
+  }>(req);
   if (users.some((u) => u.phone === payload.phone)) {
     throw new MockError('That phone number is already registered', 409);
   }
@@ -282,8 +318,12 @@ route('POST', '/api/auth/agent/signup', (req) => {
     active: true,
   };
   users.push(agent);
+  // The new agent needs a record of their own, or the admin's list would show
+  // them with no agent ID and no referral.
+  registerAgentExtra(agent.id, normaliseReferral(payload.referralNo, payload.phone), payload.address);
   if (payload.password) {
     agentPasswords.set(payload.email.toLowerCase(), payload.password);
+    agentExtras[agent.id].passwordSet = true;
   }
   return {
     message: payload.password
@@ -395,6 +435,19 @@ function repath(parent: Unit) {
       repath(child);
     });
 }
+
+/**
+ * Demo mode runs on a fixed tree held in memory, so there is nothing for a
+ * master upload to write into. Saying so is better than a silent 404 or a
+ * pretend success that leaves the tree unchanged.
+ */
+route('POST', '/api/admin/locations/import/hierarchy', () => {
+  throw new MockError('Uploading the location master needs the real API — demo mode runs on fixed data', 400);
+});
+
+route('POST', '/api/admin/locations/import/booths', () => {
+  throw new MockError('Uploading the location master needs the real API — demo mode runs on fixed data', 400);
+});
 
 route('POST', '/api/admin/units', (req) => {
   const payload = body<{ level: UnitLevel; name: string; parentId: string | null }>(req);
@@ -556,6 +609,9 @@ route('POST', '/api/admin/voters', (req) => {
     boothId: booth.id,
     boothName: booth.name,
     wardNo: payload.wardNo ?? null,
+    // Neither the admin form nor an agent's proposal carries a caste: an agent
+    // records it at the door, on the assessment screen.
+    caste: null,
     sentiment: null,
     confidence: null,
   };
@@ -626,6 +682,549 @@ route('POST', '/api/admin/voters/import', (req) => {
 
 /* --- admin: voter change requests --- */
 
+/* --- admin: field agents (FR-A20) --- */
+
+/**
+ * The referral rule, as ReferralNumbers applies it on the server: the mobile
+ * number of whoever sent the agent, or nothing. The mock enforces it too, so a
+ * demo cannot save what the real API would refuse.
+ */
+function normaliseReferral(raw: string | undefined | null, ownPhone: string | null | undefined): string | null {
+  if (!raw || !raw.trim()) return null;
+  let digits = raw.replace(/[\s\-()]/g, '').replace(/^\+/, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  if (!/^[6-9]\d{9}$/.test(digits)) {
+    throw new MockError('A referral number is the 10-digit mobile number of whoever referred the agent');
+  }
+  if (ownPhone && digits === ownPhone.trim()) throw new MockError('An agent cannot be their own referral');
+  return digits;
+}
+
+route('PUT', '/api/admin/field-agents/:id/reports-access', (req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  if (!agent || !agentExtras[id]) throw new MockError('Field agent not found', 404);
+  agentExtras[id].reportsEnabled = body<{ enabled: boolean }>(req).enabled;
+  return agentRow(agent);
+});
+
+route('POST', '/api/admin/field-agents/reports-access/bulk', (req) => {
+  const payload = body<{
+    selection: 'IDS' | 'ALL_MATCHING';
+    ids?: string[];
+    districtId?: string;
+    blockId?: string;
+    panchayatId?: string;
+    access?: string;
+    paidFilter?: boolean;
+    reportsFilter?: boolean;
+    search?: string;
+    enabled: boolean;
+  }>(req);
+
+  // Resolved here from the filters, as the server does it.
+  const ids =
+    payload.selection === 'ALL_MATCHING'
+      ? matchingAgents({
+          query: {
+            districtId: payload.districtId,
+            blockId: payload.blockId,
+            panchayatId: payload.panchayatId,
+            access: payload.access,
+            paid: payload.paidFilter,
+            reports: payload.reportsFilter,
+            q: payload.search,
+          },
+        }).map((row) => row.id)
+      : (payload.ids ?? []);
+
+  if (ids.length === 0) throw new MockError('No agents were selected');
+  ids.forEach((id) => {
+    if (agentExtras[id]) agentExtras[id].reportsEnabled = payload.enabled;
+  });
+  return { agents: ids.length, enabled: payload.enabled };
+});
+
+route('PUT', '/api/admin/field-agents/:id/referral', (req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  if (!agent || !agentExtras[id]) throw new MockError('Field agent not found', 404);
+  agentExtras[id].referralNo = normaliseReferral(body<{ referralNo?: string }>(req).referralNo, agent.phone);
+  return agentRow(agent);
+});
+
+/**
+ * The Field agents page, answered the way the server does it: the area, access
+ * state and counts are all worked out here, and the page only ever receives the
+ * slice it asked for.
+ */
+function agentRow(agent: AuthUser): FieldAgent {
+  const extra = agentExtras[agent.id];
+  const grants = accessRequests.filter((r) => r.agentId === agent.id);
+  // The grant that describes the agent today: live first, then pending, then
+  // whatever was asked for last.
+  const current =
+    grants.find((r) => isLive(r)) ??
+    grants.find((r) => r.status === 'PENDING') ??
+    grants.slice().sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))[0];
+  const path = current ? (unitById(current.unitId)?.path ?? '').split(' > ') : [];
+  const access: AgentAccessState = !current
+    ? 'NONE'
+    : isLive(current)
+      ? 'APPROVED'
+      : current.status === 'PENDING'
+        ? 'PENDING'
+        : current.status === 'APPROVED'
+          ? 'EXPIRED'
+          : 'NONE';
+  const own = sentimentEntries.filter((e) => e.recordedById === agent.id);
+
+  return {
+    id: agent.id,
+    agentCode: extra?.agentCode ?? null,
+    name: agent.name,
+    phone: agent.phone,
+    email: agent.email,
+    address: agentExtras[agent.id]?.address ?? (path.length ? [...path].reverse().join(', ') : null),
+    referralNo: agentExtras[agent.id]?.referralNo ?? null,
+    active: agent.active,
+    areaUnitId: current?.unitId ?? null,
+    panchayatName: path[2] ?? null,
+    blockName: path[1] ?? null,
+    districtName: path[0] ?? null,
+    candidateName: current?.candidateName ?? null,
+    access,
+    accessExpiresAt: current?.expiresAt ?? null,
+    votersRecorded: own.length,
+    lastActive: own.map((e) => e.updatedAt).sort().slice(-1)[0] ?? null,
+    joined: extra?.joined ?? null,
+    downloadEnabled: Boolean(agent.downloadEnabled),
+    paid: extra?.paid ?? false,
+    paidAmount: extra?.paidAmount ?? null,
+    paidOn: extra?.paidOn ?? null,
+    paidMode: extra?.paidMode ?? null,
+    paidRef: extra?.paidRef ?? null,
+    paidUpdatedAt: extra?.paidUpdatedAt ?? null,
+    paidUpdatedByName: extra?.paidUpdatedByName ?? null,
+    reportsEnabled: extra?.reportsEnabled ?? false,
+    passwordSet: extra?.passwordSet ?? false,
+    mustChangePassword: extra?.mustChangePassword ?? false,
+    passwordResetRequestedAt: extra?.passwordResetRequestedAt ?? null,
+  };
+}
+
+/** Every unit at or under one, the way the server's scope check reads it. */
+function unitIdsAtOrUnder(unitId: string): Set<string> {
+  return new Set([unitId, ...descendantUnits(unitId).map((u) => u.id)]);
+}
+
+/** The admin's own scope, narrowed by whatever area they picked (FA-3, FA-4). */
+function agentAreaIds(req: MockRequest): Set<string> | null {
+  const admin = requireUser();
+  const picked = q(req, 'panchayatId') ?? q(req, 'blockId') ?? q(req, 'districtId');
+  const scope = admin.scopeUnitId ? unitIdsAtOrUnder(admin.scopeUnitId) : null;
+  if (!picked) return scope;
+  const chosen = unitIdsAtOrUnder(picked);
+  if (!scope) return chosen;
+  return new Set([...chosen].filter((id) => scope.has(id)));
+}
+
+function matchingAgents(req: MockRequest): FieldAgent[] {
+  const area = agentAreaIds(req);
+  const access = q(req, 'access');
+  const paid = q(req, 'paid');
+  const reports = q(req, 'reports');
+  const search = (q(req, 'q') ?? '').trim().toLowerCase();
+
+  return users
+    .filter((u) => u.role === 'FIELD_AGENT')
+    .filter((u) => !area || accessRequests.some((r) => r.agentId === u.id && area.has(r.unitId)))
+    .map(agentRow)
+    .filter((row) => !access || row.access === access)
+    .filter((row) => paid === undefined || row.paid === (paid === 'true'))
+    .filter((row) => reports === undefined || row.reportsEnabled === (reports === 'true'))
+    .filter(
+      (row) =>
+        !search ||
+        row.name.toLowerCase().includes(search) ||
+        (row.phone ?? '').toLowerCase().includes(search) ||
+        (row.referralNo ?? '').toLowerCase().includes(search) ||
+        (row.agentCode ?? '').toLowerCase().includes(search),
+    );
+}
+
+function sortAgents(rows: FieldAgent[], req: MockRequest): FieldAgent[] {
+  const desc = q(req, 'desc') === 'true' ? -1 : 1;
+  const byVoters = q(req, 'sort') === 'VOTERS';
+  return rows
+    .slice()
+    .sort(
+      (a, b) =>
+        desc * (byVoters ? a.votersRecorded - b.votersRecorded : a.name.localeCompare(b.name)) ||
+        a.name.localeCompare(b.name),
+    );
+}
+
+route('GET', '/api/admin/field-agents', (req) => {
+  const page = Number(q(req, 'page') ?? 0);
+  const size = Number(q(req, 'size') ?? 25);
+  const rows = sortAgents(matchingAgents(req), req);
+  // The tab counts ignore the payment filter, so the two always add up to All.
+  const across = matchingAgents({ ...req, query: { ...req.query, paid: undefined } });
+  const paidCount = across.filter((row) => row.paid).length;
+
+  return {
+    items: rows.slice(page * size, page * size + size),
+    page,
+    size,
+    total: rows.length,
+    allCount: across.length,
+    paidCount,
+    unpaidCount: across.length - paidCount,
+    totalPages: Math.max(1, Math.ceil(rows.length / size)),
+  } satisfies FieldAgentPage;
+});
+
+route('GET', '/api/admin/field-agents/areas', (req) => {
+  const admin = requireUser();
+  const level = q(req, 'level');
+  const parentId = q(req, 'parentId');
+  const scope = admin.scopeUnitId ? unitIdsAtOrUnder(admin.scopeUnitId) : null;
+
+  return units
+    .filter((u) => u.level === level && (!parentId || u.parentId === parentId))
+    .filter((u) => !scope || scope.has(u.id))
+    .map((unit) => {
+      const within = unitIdsAtOrUnder(unit.id);
+      const agents = new Set(
+        accessRequests.filter((r) => within.has(r.unitId)).map((r) => r.agentId),
+      );
+      return { unitId: unit.id, name: unit.name, agents: agents.size };
+    });
+});
+
+route('GET', '/api/admin/field-agents/:id', (_req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  if (!agent) throw new MockError('Field agent not found', 404);
+  return agentRow(agent);
+});
+
+function applyPayment(ids: string[], payload: PaymentBody) {
+  const admin = requireUser();
+  ids.forEach((id) => {
+    const extra = agentExtras[id];
+    if (!extra) return;
+    extra.paid = payload.paid;
+    // Not paid clears the payment; only who changed it is kept (FA-12).
+    extra.paidAmount = payload.paid ? (payload.amount ?? null) : null;
+    extra.paidOn = payload.paid ? (payload.paidOn ?? nowIso()) : null;
+    extra.paidMode = payload.paid ? (payload.mode ?? null) : null;
+    extra.paidRef = payload.paid ? (payload.reference ?? null) : null;
+    extra.paidUpdatedAt = nowIso();
+    extra.paidUpdatedByName = admin.name;
+  });
+}
+
+interface PaymentBody {
+  paid: boolean;
+  amount?: number;
+  paidOn?: string;
+  mode?: PaymentMode;
+  reference?: string;
+}
+
+route('PUT', '/api/admin/field-agents/:id/payment', (req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  if (!agent) throw new MockError('Field agent not found', 404);
+  const payload = body<PaymentBody>(req);
+  if (payload.paid && !(Number(payload.amount) > 0)) throw new MockError('Enter the amount paid');
+  applyPayment([id], payload);
+  return agentRow(agent);
+});
+
+route('POST', '/api/admin/field-agents/payment/bulk', (req) => {
+  const payload = body<PaymentBody & { selection: 'IDS' | 'ALL_MATCHING'; ids?: string[] }>(req);
+  // ALL_MATCHING is resolved here from the filters, never from a list the page
+  // put together, exactly as the server does it (FA-14).
+  const ids =
+    payload.selection === 'ALL_MATCHING'
+      ? matchingAgents({
+          query: {
+            districtId: payload['districtId' as keyof typeof payload] as string | undefined,
+            blockId: payload['blockId' as keyof typeof payload] as string | undefined,
+            panchayatId: payload['panchayatId' as keyof typeof payload] as string | undefined,
+            access: payload['access' as keyof typeof payload] as string | undefined,
+            paid: payload['paidFilter' as keyof typeof payload] as boolean | undefined,
+            q: payload['search' as keyof typeof payload] as string | undefined,
+          },
+        }).map((row) => row.id)
+      : (payload.ids ?? []);
+
+  if (ids.length === 0) throw new MockError('No agents were selected');
+  if (payload.paid && !(Number(payload.amount) > 0)) throw new MockError('Enter the amount paid');
+  applyPayment(ids, payload);
+  return {
+    agents: ids.length,
+    paid: payload.paid,
+    total: payload.paid ? (payload.amount ?? 0) * ids.length : null,
+  };
+});
+
+const RESET_WORDS = ['seva', 'jaga', 'sathi', 'bela', 'tara', 'nila'];
+
+route('POST', '/api/admin/field-agents/:id/password-reset', (req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  const extra = agentExtras[id];
+  if (!agent || !extra) throw new MockError('Field agent not found', 404);
+
+  const typed = (body<{ password?: string }>(req).password ?? '').trim();
+  const password =
+    typed || `${RESET_WORDS[Math.floor(Math.random() * RESET_WORDS.length)]}${1000 + Math.floor(Math.random() * 9000)}`;
+  if (password.length < 6 || /\s/.test(password)) {
+    throw new MockError('A temporary password needs at least 6 characters and no spaces');
+  }
+
+  if (agent.email) agentPasswords.set(agent.email.toLowerCase(), password);
+  extra.passwordSet = true;
+  extra.mustChangePassword = true;
+  extra.passwordResetRequestedAt = null;
+  return { temporaryPassword: password, validDays: 7 };
+});
+
+route('DELETE', '/api/admin/field-agents/:id/password-request', (_req, [id]) => {
+  const agent = users.find((u) => u.id === id && u.role === 'FIELD_AGENT');
+  if (!agent || !agentExtras[id]) throw new MockError('Field agent not found', 404);
+  agentExtras[id].passwordResetRequestedAt = null;
+  return agentRow(agent);
+});
+
+/* --- agent: Reports (FR-U14) --- */
+
+function requireReportsAgent() {
+  const agent = requireUser();
+  if (!agentExtras[agent.id]?.reportsEnabled) {
+    throw new MockError('The Reports page is not switched on for your account', 403);
+  }
+  return agent;
+}
+
+/** One entry per live grant, with the booths and wards it covers (AR-2, AR-4). */
+function reportScopes(agentId: string) {
+  return grantsFor(agentId).map((grant) => {
+    const unit = unitById(grant.unitId)!;
+    const path = (unit.path ?? '').split(' > ');
+    const panchayat = unit.level === 'BOOTH' ? unitById(unit.parentId!)! : unit;
+    const boothIds = boothIdsUnder(grant.unitId);
+    const booths = boothIds.map((id) => ({ id, name: unitById(id)!.name }));
+    const wards = [
+      ...new Set(voters.filter((v) => boothIds.includes(v.boothId) && v.wardNo).map((v) => v.wardNo as number)),
+    ].sort((a, b) => a - b);
+
+    return {
+      panchayatId: panchayat.id,
+      panchayatName: panchayat.name,
+      blockName: path[1] ?? null,
+      districtName: path[0] ?? null,
+      candidateId: grant.candidateId,
+      candidateName: grant.candidateName,
+      expiresAt: grant.expiresAt,
+      booths,
+      wards,
+    };
+  });
+}
+
+route('GET', '/api/agent/reports/scope', () => reportScopes(requireReportsAgent().id));
+
+route('GET', '/api/agent/reports/voters.pdf', (req) => {
+  const agent = requireReportsAgent();
+  // AG-10: the second switch is what lets named voters leave the building.
+  if (!agent.downloadEnabled) throw new MockError('Voter-details download is turned off for you', 403);
+
+  const panchayatId = q(req, 'panchayatId');
+  const scope = reportScopes(agent.id).find((s) => s.panchayatId === panchayatId);
+  if (!scope) throw new MockError('You have no approved access to that panchayat', 403);
+
+  const chosenBooths = (q(req, 'booth') ?? '').split(',').filter(Boolean);
+  const wanted = (q(req, 'sentiment') ?? '').split(',').filter(Boolean);
+  const rows = scope.booths
+    .filter((booth) => chosenBooths.length === 0 || chosenBooths.includes(booth.id))
+    .flatMap((booth) =>
+      voters
+        .filter((v) => v.boothId === booth.id)
+        .map((v) => {
+          const entry = sentimentEntries.find(
+            (e) => e.voterId === v.id && e.candidateId === scope.candidateId,
+          );
+          return { booth: booth.name, voter: v, mark: entry?.sentiment ?? 'NOT_RECORDED' };
+        })
+        .filter((row) => wanted.length === 0 || wanted.includes(row.mark)),
+    );
+  if (rows.length === 0) throw new MockError('No voters match that selection');
+
+  // The real endpoint answers with a watermarked PDF; the mock stands in with a
+  // readable text file of the same rows so the flow can be demonstrated.
+  const lines = rows.map(
+    (row, i) =>
+      `${i + 1}. ${row.booth} | ${row.voter.name} | ${row.voter.relation} | ${row.voter.age} | ` +
+      `${row.voter.gender} | ${row.voter.houseNo ?? ''} | ${row.mark}`,
+  );
+  const text = [`${scope.panchayatName} — voter details (demo)`, agent.name, '', ...lines].join('\n');
+  return new Blob([text + '\n'], { type: 'application/pdf' });
+});
+
+route('GET', '/api/agent/reports', (req) => {
+  const agent = requireReportsAgent();
+  const panchayatId = q(req, 'panchayatId');
+  const candidateId = q(req, 'candidateId');
+  const scope = reportScopes(agent.id).find(
+    (s) => s.panchayatId === panchayatId && (!candidateId || s.candidateId === candidateId),
+  );
+  if (!scope) throw new MockError('You have no approved access to that panchayat', 403);
+
+  const confidence = (q(req, 'confidence') ?? '').split(',').filter(Boolean);
+  const wards = (q(req, 'ward') ?? '').split(',').filter(Boolean).map(Number);
+  const castes = (q(req, 'caste') ?? '').split(',').filter(Boolean);
+  const chosenBooths = (q(req, 'booth') ?? '').split(',').filter(Boolean);
+  const days = Number(q(req, 'days') ?? 0);
+  const since = days > 0 ? Date.now() - days * 86400000 : null;
+
+  // A booth outside the agent's own approvals is refused, not dropped.
+  const outside = chosenBooths.filter((id) => !scope.booths.some((booth) => booth.id === id));
+  if (outside.length > 0) throw new MockError('You have no approved access to that booth', 403);
+
+  // Caste narrows the roll, not the entry: it is held on the voter, so the
+  // recorded and not-recorded figures move together.
+  const casteMatches = (voterCaste: string | null) =>
+    castes.length === 0 || (voterCaste === null ? castes.includes('NONE') : castes.includes(voterCaste));
+
+  const rows = scope.booths
+    .filter((booth) => chosenBooths.length === 0 || chosenBooths.includes(booth.id))
+    .map((booth) => {
+    const roll = voters.filter(
+      (v) =>
+        v.boothId === booth.id &&
+        (wards.length === 0 || (v.wardNo !== null && wards.includes(v.wardNo))) &&
+        casteMatches(v.caste),
+    );
+    const ids = new Set(roll.map((v) => v.id));
+    const entries = sentimentEntries.filter((e) => ids.has(e.voterId) && e.candidateId === scope.candidateId);
+    const counted = entries
+      .filter((e) => confidence.length === 0 || confidence.includes(e.confidence))
+      .filter((e) => !since || new Date(e.updatedAt).getTime() >= since);
+
+    return {
+      boothId: booth.id,
+      boothName: booth.name,
+      positive: counted.filter((e) => e.sentiment === 'POSITIVE').length,
+      neutral: counted.filter((e) => e.sentiment === 'NEUTRAL').length,
+      negative: counted.filter((e) => e.sentiment === 'NEGATIVE').length,
+      // Never narrowed by confidence or date: a voter seen last month is not
+      // waiting to be seen (AgentReportDto).
+      notRecorded: Math.max(0, roll.length - new Set(entries.map((e) => e.voterId)).size),
+      voters: roll.length,
+    };
+  });
+
+  const sum = (pick: (row: (typeof rows)[number]) => number) => rows.reduce((total, row) => total + pick(row), 0);
+  return {
+    booths: rows,
+    totals: {
+      boothId: scope.panchayatId,
+      boothName: scope.panchayatName,
+      positive: sum((r) => r.positive),
+      neutral: sum((r) => r.neutral),
+      negative: sum((r) => r.negative),
+      notRecorded: sum((r) => r.notRecorded),
+      voters: sum((r) => r.voters),
+    },
+    boothCount: rows.length,
+  };
+});
+
+/* --- agent: their own sign-in (FA-24) --- */
+
+function passwordStatus(agentId: string) {
+  const extra = agentExtras[agentId];
+  return {
+    passwordSet: Boolean(extra?.passwordSet),
+    mustChangePassword: Boolean(extra?.mustChangePassword),
+    resetRequestedAt: extra?.passwordResetRequestedAt ?? null,
+  };
+}
+
+route('GET', '/api/agent/password', () => passwordStatus(requireUser().id));
+
+route('POST', '/api/agent/password/reset-request', () => {
+  const agent = requireUser();
+  const extra = agentExtras[agent.id];
+  // Asking twice leaves the one ask standing, as the server does.
+  if (extra && !extra.passwordResetRequestedAt) extra.passwordResetRequestedAt = nowIso();
+  return passwordStatus(agent.id);
+});
+
+route('DELETE', '/api/agent/password/reset-request', () => {
+  const agent = requireUser();
+  if (agentExtras[agent.id]) agentExtras[agent.id].passwordResetRequestedAt = null;
+  return passwordStatus(agent.id);
+});
+
+route('PUT', '/api/agent/password', (req) => {
+  const agent = requireUser();
+  const extra = agentExtras[agent.id];
+  const { currentPassword, newPassword } = body<{ currentPassword?: string; newPassword: string }>(req);
+
+  if (extra?.passwordSet) {
+    const held = agent.email ? agentPasswords.get(agent.email.toLowerCase()) : undefined;
+    if (!currentPassword || (held && currentPassword !== held)) {
+      throw new MockError('That is not your current password');
+    }
+  }
+  if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword) || /\s/.test(newPassword)) {
+    throw new MockError('Choose at least 8 characters with a letter and a number, and no spaces');
+  }
+
+  if (agent.email) agentPasswords.set(agent.email.toLowerCase(), newPassword);
+  if (extra) {
+    extra.passwordSet = true;
+    extra.mustChangePassword = false;
+    extra.passwordResetRequestedAt = null;
+  }
+  currentUser = { ...agent, mustChangePassword: false };
+  return passwordStatus(agent.id);
+});
+
+route('GET', '/api/admin/field-agents/export.csv', (req) => {
+  const header =
+    'Agent ID,Name,Mobile,Email,Address,District,Block,Panchayat,Candidate,Access status,' +
+    'Access expiry,Voters recorded,Joined,Last active,Paid,Amount,Paid on,Mode,Reference';
+  const lines = sortAgents(matchingAgents(req), req).map((row) =>
+    [
+      row.agentCode,
+      row.name,
+      row.phone,
+      row.email,
+      row.address,
+      row.districtName,
+      row.blockName,
+      row.panchayatName,
+      row.candidateName,
+      row.access,
+      row.accessExpiresAt,
+      row.votersRecorded,
+      row.joined,
+      row.lastActive,
+      row.paid ? 'Yes' : 'No',
+      row.paidAmount,
+      row.paidOn,
+      row.paidMode,
+      row.paidRef,
+    ]
+      .map((cell) => (cell == null ? '' : `"${String(cell).replace(/"/g, '""')}"`))
+      .join(','),
+  );
+  // The real endpoint answers with a file, so the mock has to as well.
+  return new Blob([`\uFEFF${[header, ...lines].join('\r\n')}\r\n`], { type: 'text/csv' });
+});
+
 route('GET', '/api/admin/voter-changes', (req) => {
   const status = q(req, 'status');
   return voterChangeRequests
@@ -653,6 +1252,7 @@ route('POST', '/api/admin/voter-changes/:id/approve', (req, [id]) => {
       boothId: booth.id,
       boothName: booth.name,
       wardNo: change.payload.wardNo ?? null,
+      caste: null,
       sentiment: null,
       confidence: null,
     });
@@ -750,8 +1350,16 @@ route('PATCH', '/api/admin/users/admins/:id/scope', (req, [id]) => {
 });
 
 route('POST', '/api/admin/users', (req) => {
-  const payload = body<{ name: string; email: string; phone: string; role?: AuthUser['role'] }>(req);
+  const payload = body<{
+    name: string;
+    email: string;
+    phone: string;
+    referralNo?: string;
+    role?: AuthUser['role'];
+  }>(req);
   if (users.some((u) => u.phone === payload.phone)) throw new MockError('That phone number is already registered', 409);
+  // Refused before the account exists, as the server does it.
+  const referralNo = normaliseReferral(payload.referralNo, payload.phone);
   const user: AuthUser = {
     id: nextId('agent'),
     name: payload.name,
@@ -761,7 +1369,18 @@ route('POST', '/api/admin/users', (req) => {
     active: true,
   };
   users.push(user);
+  if (user.role === 'FIELD_AGENT') {
+    registerAgentExtra(user.id, referralNo);
+  }
   return user;
+});
+
+route('PUT', '/api/admin/agents/:id/download-enabled', (req, [id]) => {
+  const agent = users.find((u) => u.id === id);
+  if (!agent) throw new MockError('User not found', 404);
+  if (agent.role !== 'FIELD_AGENT') throw new MockError('Only a field agent downloads voter lists', 400);
+  agent.downloadEnabled = body<{ enabled: boolean }>(req).enabled;
+  return agent;
 });
 
 route('PATCH', '/api/admin/users/:id/status', (req, [id]) => {
@@ -815,6 +1434,151 @@ route('GET', '/api/admin/reports/export', (req) => {
   return new Blob([`K-Pulse ${format} report (mock)\n${header}${csv}\n`], { type: 'text/csv' });
 });
 
+/* --- agent: voter list PDF (FR-U13) --- */
+
+const EXPORT_FILTERS = ['POSITIVE', 'NEUTRAL', 'NEGATIVE', 'NOT_RECORDED'] as const;
+type ExportFilter = (typeof EXPORT_FILTERS)[number];
+
+const EXPORT_TOKENS: Record<ExportFilter, string> = {
+  POSITIVE: 'Positive',
+  NEUTRAL: 'Neutral',
+  NEGATIVE: 'Negative',
+  NOT_RECORDED: 'NotRecorded',
+};
+
+/** The same 28 rows a page the server lays the file out at. */
+const ROWS_PER_PAGE = 28;
+const MAX_EXPORT_ROWS = 800;
+
+function exportFilters(req: MockRequest): ExportFilter[] {
+  const raw = q(req, 'sentiment') ?? '';
+  const asked = raw
+    .split(',')
+    .map((part) => part.trim().toUpperCase())
+    .filter(Boolean);
+  return EXPORT_FILTERS.filter((filter) => asked.includes(filter));
+}
+
+/**
+ * The agent's booth, the candidate their grant names, and the refusals the real
+ * server would give first — the phone must behave the same in demo mode.
+ */
+function exportContext(boothId: string) {
+  const agent = requireUser();
+  const booth = unitById(boothId);
+  const grant = grantsFor(agent.id).find((g) => boothIdsUnder(g.unitId).includes(boothId));
+  if (!booth || !grant) {
+    const expired = accessRequests.find(
+      (r) =>
+        r.agentId === agent.id &&
+        r.status === 'APPROVED' &&
+        r.expiresAt !== null &&
+        boothIdsUnder(r.unitId).includes(boothId),
+    );
+    if (expired?.expiresAt) {
+      throw new MockError(`Your access to this booth expired on ${formatShortDate(expired.expiresAt)}`, 403);
+    }
+    throw new MockError('You do not have access to that booth', 403);
+  }
+  if (!users.find((u) => u.id === agent.id)?.downloadEnabled) {
+    throw new MockError('Downloads are turned off for your account. Ask your admin.', 403);
+  }
+  return { agent, booth, grant };
+}
+
+function exportRows(boothId: string, candidateId: string, chosen: ExportFilter[]) {
+  return voters
+    .filter((voter) => voter.boothId === boothId)
+    .map((voter) => {
+      const entry = sentimentEntries.find((e) => e.voterId === voter.id && e.candidateId === candidateId);
+      return { voter, entry, sentiment: (entry?.sentiment ?? 'NOT_RECORDED') as ExportFilter };
+    })
+    .filter((row) => chosen.includes(row.sentiment))
+    .sort((a, b) => {
+      // Roll order: by house number, numerically, as the server sorts it.
+      const house = (Number(a.voter.houseNo) || 0) - (Number(b.voter.houseNo) || 0);
+      return house !== 0 ? house : a.voter.name.localeCompare(b.voter.name);
+    });
+}
+
+function exportFileName(boothName: string, chosen: ExportFilter[]) {
+  const digits = boothName.replace(/\D+/g, '');
+  const label = digits ? `Booth${digits}` : boothName.replace(/[^A-Za-z0-9]+/g, '');
+  const tokens =
+    chosen.length === EXPORT_FILTERS.length
+      ? 'All'
+      : EXPORT_FILTERS.filter((f) => chosen.includes(f))
+          .map((f) => EXPORT_TOKENS[f])
+          .join('-');
+  return `${label}_${tokens}_${nowIso().slice(0, 10)}.pdf`;
+}
+
+route('GET', '/api/agent/voter-list/export/count', (req) => {
+  const boothId = q(req, 'unitId') ?? '';
+  const { booth, grant } = exportContext(boothId);
+  const chosen = exportFilters(req);
+  const matches = exportRows(boothId, grant.candidateId, chosen);
+  const inBooth = voters.filter((v) => v.boothId === boothId);
+  const count = (filter: ExportFilter) =>
+    exportRows(boothId, grant.candidateId, [filter]).length;
+
+  const [, blockName = null] = booth.path.split(' > ');
+  return {
+    boothId,
+    boothName: booth.name,
+    blockName,
+    boothPath: booth.path,
+    candidateId: grant.candidateId,
+    candidateName: grant.candidateName,
+    totalVoters: inBooth.length,
+    counts: {
+      positive: count('POSITIVE'),
+      neutral: count('NEUTRAL'),
+      negative: count('NEGATIVE'),
+      notRecorded: count('NOT_RECORDED'),
+    },
+    matching: matches.length,
+    pages: Math.ceil(matches.length / ROWS_PER_PAGE),
+    preview: matches.slice(0, 3).map((row) => ({
+      name: row.voter.name,
+      houseNo: row.voter.houseNo,
+      sentiment: row.sentiment,
+    })),
+    fileName: exportFileName(booth.name, chosen),
+    maxRows: MAX_EXPORT_ROWS,
+  };
+});
+
+route('GET', '/api/agent/voter-list/export.pdf', (req) => {
+  const boothId = q(req, 'unitId') ?? '';
+  const { agent, booth, grant } = exportContext(boothId);
+  const chosen = exportFilters(req);
+  if (chosen.length === 0) throw new MockError('Choose at least one sentiment to download', 400);
+
+  const matches = exportRows(boothId, grant.candidateId, chosen);
+  if (matches.length === 0) throw new MockError('No voters match that selection', 400);
+  if (matches.length > MAX_EXPORT_ROWS) {
+    throw new MockError('That is more voters than a single file holds — narrow the sentiment selection', 422);
+  }
+
+  // Demo mode has no PDF engine, so this is a text stand-in with the same name
+  // and the same watermark line the real file carries on every page.
+  const lines = matches.map(
+    (row, i) =>
+      `${i + 1}. ${row.voter.name} · ${row.voter.relation} · ${row.voter.age} · ${row.voter.gender} · H${row.voter.houseNo} · ${row.sentiment}`,
+  );
+  const body = [
+    `${booth.name} — voter list (demo)`,
+    booth.path,
+    `Candidate ${grant.candidateName} · ${matches.length} voter(s)`,
+    '',
+    ...lines,
+    '',
+    `Downloaded by ${agent.name} · ${nowIso()} · Not for sharing`,
+  ].join('\n');
+  return new Blob([body], { type: 'application/pdf' });
+});
+
 /* --- agent --- */
 
 route('GET', '/api/agent/access-requests', () => {
@@ -825,14 +1589,35 @@ route('GET', '/api/agent/access-requests', () => {
     .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
 });
 
+/**
+ * The candidate behind a name an agent typed, added if the name is new -- the
+ * same matching the server does, on the trimmed name ignoring case.
+ */
+function findOrCreateCandidate(name: string): Candidate {
+  const clean = (name ?? '').trim().replace(/\s+/g, ' ');
+  if (!clean) throw new MockError("Enter the candidate's name", 400);
+  const existing = candidates.find((c) => c.name.toLowerCase() === clean.toLowerCase());
+  if (existing) return existing;
+  const candidate: Candidate = { id: nextId('cand'), name: clean, party: null, unitId: null, unitName: null };
+  candidates.push(candidate);
+  return candidate;
+}
+
 route('POST', '/api/agent/access-requests', (req) => {
   const agent = requireUser();
-  const { unitId, candidateId } = body<{ unitId: string; candidateId: string }>(req);
+  const { unitId, candidateName } = body<{ unitId: string; candidateName: string }>(req);
   const unit = unitById(unitId);
-  const candidate = candidates.find((c) => c.id === candidateId);
-  if (!unit || !candidate) throw new MockError('Pick a unit and a candidate', 400);
+  if (!unit) throw new MockError('Pick a unit and a candidate', 400);
+  // The server grants a panchayat at a time, whatever a stale client sends.
+  if (unit.level !== 'PANCHAYAT') {
+    throw new MockError(
+      `Access is requested one panchayat at a time, and ${unit.name} is a ${unit.level.toLowerCase()}`,
+      400,
+    );
+  }
+  const candidate = findOrCreateCandidate(candidateName);
   const duplicate = accessRequests.find(
-    (r) => r.agentId === agent.id && r.unitId === unitId && r.candidateId === candidateId && r.status === 'PENDING',
+    (r) => r.agentId === agent.id && r.unitId === unitId && r.candidateId === candidate.id && r.status === 'PENDING',
   );
   if (duplicate) throw new MockError('You already have a pending request for that unit and candidate', 409);
   const request: AccessRequest = {
@@ -843,7 +1628,7 @@ route('POST', '/api/agent/access-requests', (req) => {
     unitLevel: unit.level,
     unitName: unit.name,
     unitPath: unit.path,
-    candidateId,
+    candidateId: candidate.id,
     candidateName: candidate.name,
     status: 'PENDING',
     requestedAt: nowIso(),
@@ -862,15 +1647,22 @@ route('GET', '/api/agent/booths', () => {
     boothIdsUnder(grant.unitId)
       .map((id) => unitById(id))
       .filter((u): u is Unit => Boolean(u))
-      .map((booth) => ({
-        boothId: booth.id,
-        boothName: booth.name,
-        path: booth.path,
-        candidateId: grant.candidateId,
-        candidateName: grant.candidateName,
-        accessRequestId: grant.id,
-        expiresAt: grant.expiresAt,
-      })),
+      .map((booth) => {
+        // Same split the server does, off the same root-first path.
+        const [districtName = null, blockName = null, panchayatName = null] = booth.path.split(' > ');
+        return {
+          boothId: booth.id,
+          boothName: booth.name,
+          path: booth.path,
+          districtName,
+          blockName,
+          panchayatName,
+          candidateId: grant.candidateId,
+          candidateName: grant.candidateName,
+          accessRequestId: grant.id,
+          expiresAt: grant.expiresAt,
+        };
+      }),
   );
 });
 
@@ -1363,12 +2155,15 @@ route('POST', '/api/agent/voters/:id/sentiment', (req, [id]) => {
     confidence: 'HIGH' | 'MEDIUM' | 'LOW';
     resident: boolean;
     wardNo?: number;
+    caste?: Voter['caste'];
   }>(req);
 
   const existing = sentimentEntries.find((e) => e.voterId === voter.id && e.candidateId === payload.candidateId);
   voter.sentiment = payload.sentiment;
   voter.confidence = payload.confidence;
   if (payload.wardNo) voter.wardNo = payload.wardNo;
+  // Unanswered leaves the voter's caste alone, as the server does.
+  if (payload.caste) voter.caste = payload.caste;
 
   if (existing) {
     // FR-U10: entries stay editable forever, no time window.
@@ -1441,7 +2236,10 @@ route('GET', '/api/agent/insights', (req) => {
   const allowed = accessibleBooths(agent.id).map((b) => b.id);
   const boothId = q(req, 'boothId');
   const scope = new Set(boothId ? [boothId] : allowed);
-  const filters: SummaryFilters = { candidateId: q(req, 'candidateId') };
+  const filters: SummaryFilters = {
+    candidateId: q(req, 'candidateId'),
+    residentsOnly: q(req, 'residentsOnly') === 'true',
+  };
   return {
     rows: summarise('BOOTH', filters, scope),
     confidence: confidenceSummary(filters, scope),

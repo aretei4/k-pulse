@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   ThumbsUp,
   Trash2,
+  UserCog,
   Users2,
   UserSquare2,
 } from 'lucide-react';
@@ -36,7 +37,10 @@ const navSections = [
       { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
       { to: '/admin/candidate-sentiment', label: 'Candidate sentiment', icon: ThumbsUp, end: false },
       { to: '/admin/pre-election', label: 'Pre-election', icon: Home, end: false },
-      { to: '/admin/users', label: 'Field agents', icon: Users2, end: false },
+      { to: '/admin/field-agents', label: 'Field agents', icon: Users2, end: false },
+      // The older screen: creating an agent and switching one off. FR-A20 took
+      // over the list itself, which could not be read at ten thousand rows.
+      { to: '/admin/users', label: 'Agent accounts', icon: UserCog, end: false },
       { to: '/admin/admins', label: 'Administrators', icon: ShieldCheck, end: false, superAdminOnly: true },
       { to: '/admin/locations', label: 'Locations', icon: MapPin, end: false },
       { to: '/admin/voter-lists', label: 'Voter lists', icon: FileSpreadsheet, end: false },

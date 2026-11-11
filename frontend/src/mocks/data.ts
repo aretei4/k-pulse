@@ -6,6 +6,7 @@ import type {
   AccountDeletionRequest,
   HouseSentimentEntry,
   SentimentEntry,
+  PaymentMode,
   SentimentValue,
   Unit,
   Voter,
@@ -154,6 +155,8 @@ const femaleFirst = [
 const surnames = ['Behera', 'Nayak', 'Swain', 'Jena', 'Sahoo', 'Das', 'Patra', 'Mohanty', 'Rout', 'Sethi', 'Pradhan', 'Barik'];
 const relationHeads = ['Sridhar', 'Ranjit', 'Gopal', 'Bhagaban', 'Dasarathi', 'Narayan', 'Trilochan', 'Padmalochan'];
 
+const castes = ['GENERAL', 'SEBC', 'SC', 'ST', 'MINORITY'] as const;
+
 export const voters: Voter[] = [];
 let voterSeq = 0;
 
@@ -178,6 +181,8 @@ booths.forEach((booth) => {
       boothId: booth.id,
       boothName: booth.name,
       wardNo: int(1, 20),
+      // A caste is the agent's finding, so part of every demo roll has none yet.
+      caste: voterSeq % 5 === 0 ? null : pick(castes),
       sentiment: null,
       confidence: null,
     });
@@ -198,7 +203,16 @@ export const users: AuthUser[] = [
     scopeUnitId: 'blk-1-1',
     scopeUnitName: 'Tihidi',
   },
-  { id: 'agent-1', name: 'Prakash Sahoo', email: 'prakash@example.com', phone: '9861000011', role: 'FIELD_AGENT', active: true },
+  // FR-U13 is off for a new agent; one demo agent has it on so the screen is reachable.
+  {
+    id: 'agent-1',
+    name: 'Prakash Sahoo',
+    email: 'prakash@example.com',
+    phone: '9861000011',
+    role: 'FIELD_AGENT',
+    active: true,
+    downloadEnabled: true,
+  },
   { id: 'agent-2', name: 'Anita Das', email: 'anita@example.com', phone: '9861000012', role: 'FIELD_AGENT', active: true },
   { id: 'agent-3', name: 'Suresh Patra', email: 'suresh@example.com', phone: '9861000013', role: 'FIELD_AGENT', active: true },
   { id: 'agent-4', name: 'Manoj Barik', email: 'manoj@example.com', phone: '9861000014', role: 'FIELD_AGENT', active: false },
@@ -258,6 +272,117 @@ export const accessRequests: AccessRequest[] = [
   makeAccessRequest('acc-4', 'agent-3', 'block-3', 'cand-2', 'PENDING', 3),
   makeAccessRequest('acc-5', 'agent-2', booths[1].id, 'cand-2', 'APPROVED', 20),
 ];
+
+
+/* ------------------------------------------------------------------ *
+ * FR-A20: enough field agents for the admin's Field agents page to
+ * behave like the real one. Four agents cannot show paging, geography
+ * filters or payment tabs doing anything.
+ * ------------------------------------------------------------------ */
+
+/** What the Field agents page knows about an agent beyond their account. */
+export interface MockAgentExtra {
+  agentCode: string;
+  joined: string;
+  paid: boolean;
+  paidAmount: number | null;
+  paidOn: string | null;
+  paidMode: PaymentMode | null;
+  paidRef: string | null;
+  paidUpdatedAt: string | null;
+  paidUpdatedByName: string | null;
+  /** FA-24/FA-25: the agent's sign-in state, never a password. */
+  passwordSet: boolean;
+  /** FR-A22: whether this agent has the Reports page. Off until an admin gives it. */
+  reportsEnabled: boolean;
+  mustChangePassword: boolean;
+  passwordResetRequestedAt: string | null;
+  /** Who the agent named at sign-up, if anyone. */
+  referralNo: string | null;
+  /** What they typed as their address at sign-up; the seeded agents have none. */
+  address: string | null;
+}
+
+export const agentExtras: Record<string, MockAgentExtra> = {};
+
+const panchayatUnits = units.filter((u) => u.level === 'PANCHAYAT');
+
+/** Used by the mock's sign-up route for an agent created during a demo. */
+export function registerAgentExtra(id: string, referralNo?: string | null, address?: string | null) {
+  registerAgent(id, 0);
+  agentExtras[id].paid = false;
+  agentExtras[id].paidAmount = null;
+  agentExtras[id].paidOn = null;
+  agentExtras[id].paidMode = null;
+  agentExtras[id].paidRef = null;
+  agentExtras[id].paidUpdatedAt = null;
+  agentExtras[id].paidUpdatedByName = null;
+  agentExtras[id].passwordSet = false;
+  agentExtras[id].referralNo = referralNo ?? null;
+  agentExtras[id].address = address ?? null;
+}
+
+function registerAgent(id: string, joinedDaysAgo: number) {
+  const number = Object.keys(agentExtras).length + 1;
+  // Roughly a third already paid, so both tabs have something in them.
+  const paid = rand() > 0.65;
+  agentExtras[id] = {
+    agentCode: `A-${String(number).padStart(5, '0')}`,
+    joined: iso(joinedDaysAgo),
+    paid,
+    paidAmount: paid ? 1500 : null,
+    paidOn: paid ? iso(int(1, 40)) : null,
+    paidMode: paid ? pick(['UPI', 'BANK', 'CASH'] as const) : null,
+    paidRef: paid ? `UTR${int(100000, 999999)}` : null,
+    paidUpdatedAt: paid ? iso(int(1, 40)) : null,
+    paidUpdatedByName: paid ? 'Constituency Admin' : null,
+    passwordSet: rand() > 0.4,
+    // AD-2: off by default. A couple of the demo agents have it so the page
+    // can be seen without first switching it on.
+    reportsEnabled: rand() > 0.85,
+    mustChangePassword: false,
+    // A couple of agents are waiting, so the admin's list has something to act on.
+    passwordResetRequestedAt: rand() > 0.94 ? iso(int(1, 6)) : null,
+    // Most agents walked in on their own; some name whoever sent them.
+    referralNo: rand() > 0.7 ? `98${String(61000000 + int(1, 999999)).slice(0, 8)}` : null,
+    address: null,
+  };
+}
+
+users.filter((u) => u.role === 'FIELD_AGENT').forEach((agent, index) => registerAgent(agent.id, 120 + index * 7));
+
+for (let i = 0; i < 120; i += 1) {
+  const seq = i + 5;
+  const id = `agent-${seq}`;
+  const female = rand() > 0.5;
+  users.push({
+    id,
+    name: `${female ? pick(femaleFirst) : pick(maleFirst)} ${pick(surnames)}`,
+    email: `agent${seq}@example.com`,
+    phone: `9${String(200000000 + seq * 7919).slice(0, 9)}`,
+    role: 'FIELD_AGENT',
+    active: rand() > 0.05,
+    downloadEnabled: rand() > 0.75,
+  });
+  registerAgent(id, int(20, 400));
+
+  // One grant each, a few of them pending or lapsed, so the Access filter
+  // has all four states to sort between.
+  const roll = rand();
+  const status = roll > 0.9 ? 'PENDING' : 'APPROVED';
+  const grant = makeAccessRequest(
+    `acc-${id}`,
+    id,
+    pick(panchayatUnits).id,
+    pick(candidates).id,
+    status,
+    int(5, 300),
+  );
+  if (status === 'APPROVED' && roll > 0.78 && roll <= 0.9) {
+    grant.expiresAt = iso(int(5, 60));
+  }
+  accessRequests.push(grant);
+}
 
 export const voterChangeRequests: VoterChangeRequest[] = [
   {

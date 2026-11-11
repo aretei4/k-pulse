@@ -13,6 +13,14 @@ public record UserDto(
         String phone,
         Role role,
         boolean active,
+        /** FR-A20: the readable agent id, A-00272. Null on an admin account. */
+        String agentCode,
+        /** FR-U13: field agents only — whether PDF download is switched on for them. */
+        boolean downloadEnabled,
+        /** FA-25: the SPA sends the agent to choose a new password before anything else. */
+        boolean mustChangePassword,
+        /** FR-U14: whether the agent has the Reports page. The server checks again on every call. */
+        boolean reportsEnabled,
         UnitLevel scopeLevel,
         UUID scopeUnitId,
         String scopeUnitName) {
@@ -27,6 +35,10 @@ public record UserDto(
                 user.getPhone(),
                 user.getRole(),
                 user.isActive(),
+                user.getAgentNo() == null ? null : "A-%05d".formatted(user.getAgentNo()),
+                user.isDownloadEnabled(),
+                user.isMustChangePassword(),
+                user.isReportsEnabled(),
                 scope == null ? null : scope.getLevel(),
                 unit == null ? null : unit.getId(),
                 unit == null ? null : unit.getName());

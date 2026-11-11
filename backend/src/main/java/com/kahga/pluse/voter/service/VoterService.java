@@ -12,6 +12,7 @@ import com.kahga.pluse.sentiment.repository.SentimentEntryRepository;
 import com.kahga.pluse.voter.dto.VoterDto;
 import com.kahga.pluse.voter.dto.BoothClearedDto;
 import com.kahga.pluse.voter.dto.VoterRequest;
+import com.kahga.pluse.voter.entity.Caste;
 import com.kahga.pluse.voter.entity.Gender;
 import com.kahga.pluse.voter.entity.Voter;
 import com.kahga.pluse.voter.repository.VoterRepository;
@@ -148,12 +149,19 @@ public class VoterService {
     }
 
     /**
-     * Sentiment entry captures the ward on the doorstep, and that overrides the
-     * roll. It has to go through here: setting it on a loaded Voter persists nothing.
+     * What sentiment entry captures on the doorstep: the ward, which overrides
+     * the roll, and the caste, which the roll does not carry at all. Only the
+     * values given are written, and it has to go through here -- setting them on
+     * a loaded Voter persists nothing.
      */
     @Transactional
-    public void updateWardNo(Voter voter, Integer wardNo) {
-        voter.setWardNo(wardNo);
+    public void updateFromDoorstep(Voter voter, Integer wardNo, Caste caste) {
+        if (wardNo != null) {
+            voter.setWardNo(wardNo);
+        }
+        if (caste != null) {
+            voter.setCaste(caste);
+        }
         voterRepository.save(voter);
     }
 

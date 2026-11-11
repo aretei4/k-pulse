@@ -40,6 +40,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**", "/actuator/health", "/h2-console/**").permitAll()
                         // FR-A13: making or re-scoping an admin account is a super-admin act.
                         .requestMatchers("/api/admin/users/admins/**").hasRole("SUPER_ADMIN")
+                        // So is replacing the location master, which the voter roll,
+                        // access grants and every recorded sentiment hang off.
+                        .requestMatchers("/api/admin/locations/import/**").hasRole("SUPER_ADMIN")
                         .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
                         .requestMatchers("/api/agent/**").hasRole("FIELD_AGENT")
                         .requestMatchers("/api/**").authenticated()

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { CSSProperties } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { colors, fonts } from '@/shared/theme';
 
@@ -25,6 +27,12 @@ export interface FieldProps {
   disabled?: boolean;
   maxLength?: number;
   style?: CSSProperties;
+  /**
+   * Adds a Show / Hide control to a password field. Worth it on a phone, in
+   * sunlight, with a password somebody read out over a call: typing it blind
+   * twice is how an agent locks themselves out of their own account.
+   */
+  revealable?: boolean;
 }
 
 export function Field({
@@ -38,7 +46,12 @@ export function Field({
   disabled,
   maxLength,
   style,
+  revealable,
 }: FieldProps) {
+  const [shown, setShown] = useState(false);
+  const reveals = revealable && type === 'password';
+  const Icon = shown ? EyeOff : Eye;
+
   return (
     <div style={{ marginBottom: 12, ...style }}>
       {label && (
@@ -46,15 +59,47 @@ export function Field({
           {label}
         </label>
       )}
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        disabled={disabled}
-        maxLength={maxLength}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ ...controlStyle, borderColor: error ? colors.negative : colors.line, opacity: disabled ? 0.6 : 1 }}
-      />
+      <div style={{ position: 'relative' }}>
+        <input
+          type={reveals && shown ? 'text' : type}
+          placeholder={placeholder}
+          value={value}
+          disabled={disabled}
+          maxLength={maxLength}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            ...controlStyle,
+            borderColor: error ? colors.negative : colors.line,
+            opacity: disabled ? 0.6 : 1,
+            paddingRight: reveals ? 76 : controlStyle.paddingRight,
+          }}
+        />
+        {reveals && (
+          <button
+            type="button"
+            onClick={() => setShown((on) => !on)}
+            aria-label={shown ? 'Hide password' : 'Show password'}
+            style={{
+              position: 'absolute',
+              right: 6,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px 6px',
+              fontFamily: fonts.sans,
+              fontSize: 11,
+              color: colors.marigoldDeep,
+            }}
+          >
+            <Icon size={13} /> {shown ? 'Hide' : 'Show'}
+          </button>
+        )}
+      </div>
       {error ? (
         <p style={{ fontFamily: fonts.sans, fontSize: 11, color: colors.negative, margin: '4px 0 0' }}>{error}</p>
       ) : hint ? (

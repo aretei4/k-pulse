@@ -55,6 +55,7 @@ export function HouseInsightsPage() {
         negative: data.negative,
         notRecorded: 0,
         total: data.residents,
+        nonResident: data.people - data.residents,
       }
     : null;
 

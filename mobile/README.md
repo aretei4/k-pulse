@@ -57,6 +57,13 @@ Rules the app applies to whatever comes back:
   reloaded only if the fetch actually returns a *different* usable URL.
 - **Release builds use Firebase's hourly throttle**; debug and demo builds fetch
   on every launch, so a change shows up immediately while you are testing.
+- **A dead URL asks Firebase again.** If the page fails to load at all, or the
+  host answers with a 4xx/5xx, the app asks Remote Config straight away — cache
+  first, then a fetch that ignores the throttle — and loads the answer if it is a
+  different usable URL. That is the case the compiled `AGENT_URL` cannot cover on
+  its own: a host that moved after the APK shipped. It asks once per failed load;
+  **Try again** asks afresh. With no Firebase in the build, or no signal, the
+  fetch fails too and the error screen stays.
 
 The URL rules are unit tested in `app/src/test/.../AgentUrlTest.kt`
 (`./gradlew :app:testDebugUnitTest`).

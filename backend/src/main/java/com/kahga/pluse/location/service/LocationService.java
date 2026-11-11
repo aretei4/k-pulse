@@ -209,6 +209,16 @@ public class LocationService {
         return ids;
     }
 
+    /**
+     * Rewrites the readable trail beneath a unit that has just been renamed. The
+     * bulk upload renames in place, so it needs the same follow-through that
+     * {@link #update} gets rather than a second copy of it.
+     */
+    @Transactional
+    public void repathFrom(Unit parent) {
+        repath(parent);
+    }
+
     private void repath(Unit parent) {
         for (Unit child : unitRepository.findByParentIdOrderByNameAsc(parent.getId())) {
             child.setParent(parent);

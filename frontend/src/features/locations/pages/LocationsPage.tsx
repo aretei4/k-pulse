@@ -16,8 +16,10 @@ import {
 } from '@/shared/components';
 import { PageHeader } from '@/shared/layouts/PageHeader';
 import { useAsync } from '@/shared/hooks/useAsync';
+import { useAuth } from '@/shared/hooks/useAuth';
 import { colors, fonts } from '@/shared/theme';
 import type { Candidate, Unit, UnitLevel } from '@/shared/types';
+import { MasterUploadPanel } from '../components/MasterUploadPanel';
 import { locationsApi } from '../services/locationsApi';
 import { candidatesApi } from '../services/candidatesApi';
 
@@ -38,6 +40,7 @@ const parentLevel = (level: UnitLevel): UnitLevel | null =>
 
 export function LocationsPage() {
   const { notify } = useToast();
+  const { user } = useAuth();
   const locations = useAsync(() => locationsApi.list(), []);
   const units = useMemo(() => locations.data ?? [], [locations.data]);
 
@@ -248,6 +251,10 @@ export function LocationsPage() {
           )
         }
       />
+
+      {/* The master comes from the state's own sheets. Super admin only, matching
+          the rule the server enforces on these endpoints. */}
+      {user?.role === 'SUPER_ADMIN' && <MasterUploadPanel onImported={() => locations.reload()} />}
 
       <Card padding={16}>
         {error && (

@@ -19,6 +19,7 @@ import com.kahga.pluse.sentiment.repository.SentimentEntryRepository;
 import com.kahga.pluse.user.entity.Role;
 import com.kahga.pluse.user.entity.User;
 import com.kahga.pluse.user.repository.UserRepository;
+import com.kahga.pluse.voter.entity.Caste;
 import com.kahga.pluse.voter.entity.Gender;
 import com.kahga.pluse.voter.entity.Voter;
 import com.kahga.pluse.voter.repository.VoterRepository;
@@ -53,6 +54,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Order(1)
 @RequiredArgsConstructor
 public class DataSeeder implements ApplicationRunner {
+
+    private static final Caste[] CASTES = {
+        Caste.GENERAL, Caste.SEBC, Caste.SC, Caste.ST, Caste.MINORITY,
+    };
 
     private static final String[] MALE_FIRST = {
         "Bijay Kumar", "Ranjit Kumar", "Sanjay", "Prakash", "Dillip", "Sushant", "Kunja Bihari", "Ashok", "Debendra", "Niranjan"
@@ -147,6 +152,8 @@ public class DataSeeder implements ApplicationRunner {
                         .gender(female ? Gender.F : Gender.M)
                         .booth(booth)
                         .wardNo(1 + random.nextInt(20))
+                        // Agents fill this in booth by booth, so some rows have none.
+                        .caste(i % 5 == 0 ? null : CASTES[epicSeq % CASTES.length])
                         .createdAt(Instant.now())
                         .build());
             }

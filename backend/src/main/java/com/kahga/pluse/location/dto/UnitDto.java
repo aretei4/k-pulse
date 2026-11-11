@@ -4,7 +4,16 @@ import com.kahga.pluse.location.entity.Unit;
 import com.kahga.pluse.location.entity.UnitLevel;
 import java.util.UUID;
 
-public record UnitDto(UUID id, UnitLevel level, String name, String path, UUID parentId) {
+public record UnitDto(
+        UUID id,
+        UnitLevel level,
+        String name,
+        String path,
+        UUID parentId,
+        /** The LGD code this unit was uploaded under; null for one added by hand. */
+        String code,
+        /** The polling station a booth sits in. Null at every level above booth. */
+        String premises) {
 
     public static UnitDto from(Unit unit) {
         return new UnitDto(
@@ -12,6 +21,8 @@ public record UnitDto(UUID id, UnitLevel level, String name, String path, UUID p
                 unit.getLevel(),
                 unit.getName(),
                 unit.getPath(),
-                unit.getParent() == null ? null : unit.getParent().getId());
+                unit.getParent() == null ? null : unit.getParent().getId(),
+                unit.getCode(),
+                unit.getPremises());
     }
 }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the app's own cache folder of copies made for opening, and only so a file
+  this app has just saved can be handed to a viewer. The phone's Downloads
+  folder is not shared from here: a file there is the agent's own, and other
+  apps reach it through the system rather than through us.
+-->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

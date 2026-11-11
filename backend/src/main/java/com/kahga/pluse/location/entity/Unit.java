@@ -34,4 +34,14 @@ public class Unit {
      * never a walk up the tree, so the table is not joined to itself.
      */
     private Unit parent;
+
+    /**
+     * The LGD code this unit was uploaded under, or null for one created by
+     * hand. It is what a re-upload matches on, so a respelled name updates the
+     * unit it belongs to instead of creating a second one.
+     */
+    private String code;
+
+    /** The polling station a booth sits in. Null at every level above booth. */
+    private String premises;
 }

@@ -32,6 +32,8 @@ public final class AuthDtos {
             @NotBlank @Email String email,
             @NotBlank @Pattern(regexp = "\\d{10}", message = "must be a 10-digit number") String phone,
             String address,
+            /** Optional: who sent them. A mobile number, a worker's code, or nothing. */
+            @Size(max = 20, message = "must be 20 characters or fewer") String referralNo,
             @Size(min = MIN_PASSWORD_LENGTH, message = "must be at least 8 characters") String password) {
 
         public boolean wantsPassword() {

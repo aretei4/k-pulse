@@ -47,6 +47,23 @@ public class CandidateService {
                 .build());
     }
 
+    /**
+     * The candidate behind a name an agent typed, added on the spot if this is
+     * the first time anyone has asked for them -- an agent requesting access is
+     * often the first to name the candidate they are canvassing for. Matching is
+     * on the trimmed name ignoring case, the same uniqueness the admin screens
+     * enforce, so two spellings of one name land on one row instead of splitting
+     * that candidate's recorded sentiment in two.
+     */
+    @Transactional
+    public Candidate findOrCreateByName(String name) {
+        String clean = cleanName(name);
+        return candidateRepository
+                .findByNameIgnoreCase(clean)
+                .orElseGet(() -> candidateRepository.save(
+                        Candidate.builder().id(UUID.randomUUID()).name(clean).build()));
+    }
+
     @Transactional
     public Candidate update(UUID id, CandidateRequest request) {
         Candidate candidate = require(id);
@@ -99,8 +116,9 @@ public class CandidateService {
         return unit;
     }
 
+    /** Collapses runs of whitespace too, so "Ram  Babu" is not a second candidate. */
     private String cleanName(String name) {
-        String clean = name == null ? "" : name.trim();
+        String clean = name == null ? "" : name.trim().replaceAll("\\s+", " ");
         if (clean.isEmpty()) {
             throw new BusinessException("Enter the candidate's name");
         }

@@ -25,6 +25,11 @@ Usage:
     python extract_voterlist.py P030028.pdf -o out.xlsx --ward 4 --pages 3-10
     python extract_voterlist.py roll.pdf --from 4 --to 6        (a page range)
     python extract_voterlist.py roll.pdf --from 4               (page 4 to the end)
+    python extract_voterlist.py roll.pdf                        (page 3 to the last but one)
+
+Given no pages, it reads page 3 to the last but one: the cover, the summary that
+follows it and the summary at the end carry no voters. Pass --pages 1- to read
+the file whole.
     python extract_voterlist.py *.pdf                           (one sheet per PDF)
 
 Glyphs missing from the table fall back to the PDF's own (lossy) letter and are
@@ -632,6 +637,11 @@ def extract(pdf, decoder, pages=None, lang="ori", tesseract=None):
     other two paths -- see the warning extract_voterlist prints.
     """
     doc = pymupdf.open(pdf)
+    if pages is None:
+        pages = default_pages(doc.page_count)
+        if pages is not None:
+            print(f"  pages {pages[0]}-{pages[-1]} of {doc.page_count}: skipping the cover and the summary"
+                  f" (--pages or --from/--to to choose)")
     if pages and not any(page + 1 in pages for page in range(doc.page_count)):
         print(f"warning: {pdf} has {doc.page_count} page(s), which is outside the pages asked for",
               file=sys.stderr)
@@ -747,16 +757,35 @@ def page_range(first, last):
     return range(first or 1, (last or OPEN_ENDED) + 1)
 
 
+# A printed roll opens with a cover page and a summary, and closes with another
+# summary. None of the three holds a voter row, and on a scanned roll their
+# tables are read as rows that never existed. So with no --pages and no
+# --from/--to, the default is page 3 to the last but one.
+DEFAULT_FIRST_PAGE = 3
+DEFAULT_LAST_PAGES_SKIPPED = 1
+
+
+def default_pages(page_count):
+    """Pages 3 to the last but one, or None when the roll is too short for that.
+
+    None means every page: a two- or three-page file is not a printed roll with
+    covers around it, and reading nothing would be worse than reading a summary.
+    """
+    pages = range(DEFAULT_FIRST_PAGE, page_count - DEFAULT_LAST_PAGES_SKIPPED + 1)
+    return pages if len(pages) > 0 else None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pdf", nargs="+", help="electoral roll PDF(s); wildcards allowed")
     ap.add_argument("-o", "--out", help="output .xlsx (single input only; default: next to the PDF)")
     ap.add_argument("--ward", type=int, help="value for the Ward_No column (left blank if omitted)")
-    ap.add_argument("--pages", help="pages to read, e.g. 3-10 or 1,3,5-7 (default: all)")
+    ap.add_argument("--pages",
+                    help="pages to read, e.g. 3-10 or 1,3,5-7 (default: 3 to the last but one)")
     ap.add_argument("--from", dest="from_page", type=int, metavar="N",
-                    help="first page to read, counting from 1 (default: the first)")
+                    help="first page to read, counting from 1 (default: 3, after the cover and summary)")
     ap.add_argument("--to", dest="to_page", type=int, metavar="N",
-                    help="last page to read, inclusive (default: the last)")
+                    help="last page to read, inclusive (default: the last but one)")
     ap.add_argument("--glyphs", default=HERE / "odia_glyphs.json", help="glyph table (default: alongside this script)")
     ap.add_argument("--dump-unknown", metavar="DIR", help="render glyphs missing from the table as PNGs")
     ap.add_argument("--lang", default="ori", help="tesseract language for scanned rolls (default: ori)")

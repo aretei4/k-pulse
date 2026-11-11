@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.View
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
@@ -26,6 +27,14 @@ class MainActivity : AppCompatActivity() {
      */
     private lateinit var agentUrl: String
 
+    /**
+     * Whether Firebase has already been asked about this failure. Once per failed
+     * load: if the URL Remote Config hands back fails too, the agent gets the
+     * error screen rather than the two addresses taking turns. Tapping Try again
+     * clears it and asks once more.
+     */
+    private var askedFirebase = false
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,9 +54,21 @@ class MainActivity : AppCompatActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             overScrollMode = View.OVER_SCROLL_NEVER
             webViewClient = AgentWebViewClient()
+            // FR-U13: the voter-list PDF is fetched by the page with the agent's
+            // token, so it arrives as a blob the download manager cannot see.
+            // The page hands it to this bridge instead.
+            addJavascriptInterface(DownloadBridge(this@MainActivity), DownloadBridge.NAME)
+            // Anything the page does hand over as a real URL still goes to the
+            // system downloader rather than silently doing nothing.
+            setDownloadListener { url, _, _, _, _ -> openExternally(android.net.Uri.parse(url)) }
         }
 
-        binding.retryButton.setOnClickListener { load() }
+        binding.retryButton.setOnClickListener {
+            // A deliberate retry is worth another question to Firebase: the agent
+            // may be tapping it an hour later, somewhere with signal.
+            askedFirebase = false
+            load()
+        }
 
         binding.swipeRefresh.setOnRefreshListener {
             binding.webView.reload()
@@ -84,10 +105,42 @@ class MainActivity : AppCompatActivity() {
         binding.webView.saveState(outState)
     }
 
+    /** A link or file this app does not render itself; the phone decides what does. */
+    private fun openExternally(uri: android.net.Uri) {
+        try {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+        } catch (_: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(this, R.string.download_no_viewer, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun load() {
         binding.errorView.visibility = View.GONE
         binding.webView.visibility = View.VISIBLE
+        // Shown again for a retry or a rescue, both of which follow a failure that
+        // hid it; onPageFinished takes it away.
+        binding.progressBar.visibility = View.VISIBLE
         binding.webView.loadUrl(agentUrl)
+    }
+
+    /**
+     * The URL compiled into the build can simply be wrong by now — a host moved,
+     * a domain lapsed, a path renamed — and Remote Config is where the current one
+     * lives. Asked for only after a load has already failed, so a working app
+     * never waits on it, and at most once per failure.
+     *
+     * A different, usable URL replaces the one on screen and reloads, which
+     * clears the error view by itself. Anything else leaves that view as it is,
+     * with its Try again button.
+     */
+    private fun askFirebaseForTheCurrentUrl() {
+        if (askedFirebase) return
+        askedFirebase = true
+        AgentUrl.rescue(this, agentUrl) { moved ->
+            if (moved == null || isFinishing || isDestroyed) return@rescue
+            agentUrl = moved
+            load()
+        }
     }
 
     private inner class AgentWebViewClient : WebViewClient() {
@@ -122,6 +175,24 @@ class MainActivity : AppCompatActivity() {
             binding.progressBar.visibility = View.GONE
             binding.webView.visibility = View.GONE
             binding.errorView.visibility = View.VISIBLE
+            // No signal and a dead address look the same from here, so ask either
+            // way: with no network the fetch fails too and this view stays put.
+            askFirebaseForTheCurrentUrl()
+        }
+
+        /**
+         * The host answered, but not with the app — a 404 from a renamed path, a
+         * 502 from a server that has moved on. The WebView renders whatever came
+         * back, so there is nothing to put an error screen over; it is still
+         * worth asking whether the address has changed.
+         */
+        override fun onReceivedHttpError(
+            view: WebView,
+            request: WebResourceRequest,
+            response: WebResourceResponse,
+        ) {
+            if (!request.isForMainFrame || response.statusCode < 400) return
+            askFirebaseForTheCurrentUrl()
         }
     }
 }

@@ -122,7 +122,10 @@ public class ReportController {
                 blankToNull(sentiment) == null ? null : SentimentValue.valueOf(sentiment),
                 blankToNull(confidence) == null ? null : ConfidenceLevel.valueOf(confidence),
                 from,
-                to);
+                to,
+                // The admin screens count everyone recorded; only the agent's
+                // Insights page offers the choice so far.
+                false);
     }
 
     private String blankToNull(String value) {

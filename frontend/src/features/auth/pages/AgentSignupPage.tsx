@@ -5,6 +5,7 @@ import { Button, ErrorNote, Eyebrow, Field, Heading, Sub, useToast } from '@/sha
 import { colors, fonts } from '@/shared/theme';
 import { authApi } from '../services/authApi';
 import { MIN_PASSWORD_LENGTH } from '../constants';
+import { REFERRAL_HINT, cleanReferral, referralProblem } from '@/shared/utils/referral';
 
 export function AgentSignupPage() {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export function AgentSignupPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [referralNo, setReferralNo] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,9 @@ export function AgentSignupPage() {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setError('Enter a valid email address');
     if (!/^\d{10}$/.test(phone.trim())) return setError('Enter a 10-digit mobile number');
     if (!address.trim()) return setError('Enter your village and panchayat');
+    // Optional, but a number that cannot be rung is worse than none at all.
+    const referralError = referralProblem(referralNo, phone);
+    if (referralError) return setError(referralError);
     // Only checked once something has been typed: the password is optional.
     if (password && password.length < MIN_PASSWORD_LENGTH) {
       return setError(`A password must be at least ${MIN_PASSWORD_LENGTH} characters`);
@@ -37,6 +42,7 @@ export function AgentSignupPage() {
         email: email.trim(),
         phone: phone.trim(),
         address: address.trim(),
+        ...(referralNo.trim() ? { referralNo: referralNo.trim() } : {}),
         ...(password ? { password } : {}),
       });
       notify(
@@ -78,6 +84,15 @@ export function AgentSignupPage() {
           onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 10))}
         />
         <Field label="Address" placeholder="Village, Panchayat" value={address} onChange={setAddress} />
+        <Field
+          label="Referral number — if any"
+          placeholder="98XXXXXX21"
+          type="tel"
+          value={referralNo}
+          onChange={(v) => setReferralNo(cleanReferral(v))}
+          error={referralProblem(referralNo, phone) ?? undefined}
+          hint={REFERRAL_HINT}
+        />
 
         <div
           style={{
@@ -107,6 +122,7 @@ export function AgentSignupPage() {
             label="Password"
             placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
             type="password"
+            revealable
             value={password}
             onChange={setPassword}
           />
@@ -115,6 +131,7 @@ export function AgentSignupPage() {
               label="Confirm password"
               placeholder="Type it again"
               type="password"
+              revealable
               value={confirm}
               onChange={setConfirm}
             />

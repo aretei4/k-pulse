@@ -39,6 +39,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 HERE = Path(__file__).resolve().parent
 HEADERS = ["house_no", "name", "relation", "Relation_Name", "Age", "Gender", "Assembly Part", "Epic_no", "Ward_No"]
+
+# Printed against a voter with no house number of their own -- a few rolls leave
+# the column blank. Written rather than left empty so the sheet's house column
+# is never a mix of values and holes, and kept as text so the zeros survive
+# Excel and the upload.
+HOUSE_UNKNOWN = "0000"
 WIDTHS = [16.5, 24, 9, 24, 8, 8, 16, 20, 9]
 
 # Column x-ranges (PDF points) of the roll's table, and a row's vertical band
@@ -250,7 +256,8 @@ def write_sheet(path, part, rows, ward):
         cell.alignment = Alignment(horizontal="center", vertical="center")
     for r in rows:
         ws.append([
-            r["house"],
+            # The roll printed no house number for this voter.
+            r["house"] or HOUSE_UNKNOWN,
             r["name"],
             r["reltype"],
             r["relname"],
@@ -348,9 +355,12 @@ def main():
         out = args.out or str(Path(pdf).with_suffix(".xlsx"))
         write_sheet(out, part, rows, args.ward)
         gaps = [r["serial"] for r in rows if not r["name"] or r["age"] is None]
+        no_house = [r["serial"] for r in rows if not r["house"]]
         print(f"{pdf}: part {part}, {len(rows)} voters -> {out}")
         if gaps:
             print(f"  check serials with a missing name or age: {gaps[:20]}")
+        if no_house:
+            print(f"  {len(no_house)} voter(s) had no house number; written as {HOUSE_UNKNOWN}: {no_house[:20]}")
     if decoder.unknown:
         total = sum(decoder.unknown.values())
         print(f"warning: {len(decoder.unknown)} glyph shape(s) not in the table ({total} occurrences); "

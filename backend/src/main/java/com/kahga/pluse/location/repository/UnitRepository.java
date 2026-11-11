@@ -23,15 +23,23 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class UnitRepository {
 
-    private static final String[] COLUMNS = {"id", "level", "name", "path", "parent_id"};
+    private static final String[] COLUMNS = {"id", "level", "name", "path", "parent_id", "code", "premises"};
 
     private static final String SELECT = "SELECT " + columns("u", "") + " FROM unit u";
 
     private static final String INSERT =
-            "INSERT INTO unit (id, level, name, path, parent_id) VALUES (:id, :level, :name, :path, :parentId)";
+            """
+            INSERT INTO unit (id, level, name, path, parent_id, code, premises)
+            VALUES (:id, :level, :name, :path, :parentId, :code, :premises)
+            """;
 
     private static final String UPDATE =
-            "UPDATE unit SET level = :level, name = :name, path = :path, parent_id = :parentId WHERE id = :id";
+            """
+            UPDATE unit
+               SET level = :level, name = :name, path = :path, parent_id = :parentId,
+                   code = :code, premises = :premises
+             WHERE id = :id
+            """;
 
     private static final RowMapper<Unit> MAPPER = (rs, rowNum) -> map(rs, "");
 
@@ -50,6 +58,8 @@ public class UnitRepository {
                 .name(rs.getString(prefix + "name"))
                 .path(rs.getString(prefix + "path"))
                 .parent(parentId == null ? null : Unit.builder().id(parentId).build())
+                .code(rs.getString(prefix + "code"))
+                .premises(rs.getString(prefix + "premises"))
                 .build();
     }
 
@@ -68,6 +78,17 @@ public class UnitRepository {
                 SELECT + " WHERE u.parent_id = :parentId ORDER BY u.name",
                 new MapSqlParameterSource("parentId", parentId),
                 MAPPER);
+    }
+
+    /** The unit an upload row refers to, matched on the code it was uploaded under. */
+    public Optional<Unit> findByLevelAndCode(UnitLevel level, String code) {
+        return jdbc
+                .query(
+                        SELECT + " WHERE u.level = :level AND u.code = :code",
+                        new MapSqlParameterSource("level", level.name()).addValue("code", code),
+                        MAPPER)
+                .stream()
+                .findFirst();
     }
 
     public List<Unit> findAllByOrderByPathAsc() {
@@ -93,7 +114,9 @@ public class UnitRepository {
                 .addValue("level", name(unit.getLevel()))
                 .addValue("name", unit.getName())
                 .addValue("path", unit.getPath())
-                .addValue("parentId", unit.getParent() == null ? null : unit.getParent().getId());
+                .addValue("parentId", unit.getParent() == null ? null : unit.getParent().getId())
+                .addValue("code", unit.getCode())
+                .addValue("premises", unit.getPremises());
         if (jdbc.update(UPDATE, params) == 0) {
             jdbc.update(INSERT, params);
         }

@@ -165,6 +165,7 @@ export function AgentLoginPage() {
               label="Password"
               placeholder="Your password"
               type="password"
+              revealable
               value={password}
               onChange={setPassword}
             />

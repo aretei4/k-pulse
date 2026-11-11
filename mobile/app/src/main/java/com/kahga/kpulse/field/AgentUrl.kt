@@ -14,6 +14,11 @@ import java.net.URI
  * ordering is the point: the URL can be moved — a new host, a maintenance page,
  * a staging cut-over — without shipping an APK and waiting on review.
  *
+ * And when the URL that did load turns out to be dead, [rescue] asks Firebase
+ * again, past its throttle: a build whose compiled URL has gone stale is exactly
+ * what Remote Config is for, and it is no use to an agent if the app only looks
+ * at it while things are already working.
+ *
  * Everything here degrades to [BuildConfig.AGENT_URL]:
  *
  *  * no `google-services.json` in the build, so Firebase never initialised;
@@ -35,6 +40,9 @@ object AgentUrl {
      * Firebase's default throttle so normal use does not hammer the service.
      */
     private val FETCH_INTERVAL_SECONDS = if (BuildConfig.DEBUG) 0L else 3600L
+
+    /** How long a fetch may run before the app stops waiting on it. */
+    private const val FETCH_TIMEOUT_SECONDS = 15L
 
     private var remoteConfig: FirebaseRemoteConfig? = null
 
@@ -86,6 +94,59 @@ object AgentUrl {
             }
     }
 
+    /**
+     * Asked for only once the URL on screen has failed to load: whether Firebase
+     * knows a different one. Answers with a usable URL that is not the one that
+     * just failed, or null when Remote Config cannot help — no Firebase in this
+     * build, nothing published, the same URL back again, or the fetch itself
+     * failing.
+     *
+     * The cache is answered from first, without a network round trip: if the
+     * console was edited before this install last fetched, the new URL is already
+     * on the device. Only then does it fetch, and it fetches past the throttle
+     * — an agent looking at an error screen is the one moment an hourly interval
+     * should not apply.
+     */
+    fun rescue(context: Context, failed: String, onAnswer: (String?) -> Unit) {
+        val config = config(context)
+        if (config == null) {
+            Log.i(TAG, "$failed would not load, and this build has no Firebase to ask")
+            onAnswer(null)
+            return
+        }
+        val cached = rescueCandidate(config.getString(BuildConfig.REMOTE_CONFIG_URL_KEY), failed)
+        if (cached != null) {
+            Log.i(TAG, "$failed would not load; Remote Config already holds $cached, trying that")
+            onAnswer(cached)
+            return
+        }
+        config.fetch(0L)
+            .addOnSuccessListener {
+                config.activate().addOnCompleteListener {
+                    val fetched = rescueCandidate(config.getString(BuildConfig.REMOTE_CONFIG_URL_KEY), failed)
+                    if (fetched == null) {
+                        Log.w(TAG, "$failed would not load, and Remote Config offers nothing else")
+                    } else {
+                        Log.i(TAG, "$failed would not load; Remote Config answers $fetched")
+                    }
+                    onAnswer(fetched)
+                }
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "$failed would not load, and the Remote Config fetch failed too", error)
+                onAnswer(null)
+            }
+    }
+
+    /**
+     * What makes a value worth loading after [failed] did not load: usable by the
+     * same rule as every other value here, and not the URL that just failed —
+     * reloading that would only fail again. Pure, so the rule is unit tested
+     * without a device.
+     */
+    internal fun rescueCandidate(value: String?, failed: String): String? =
+        usable(value)?.takeIf { it != failed }
+
     /** The host the WebView treats as its own, whichever source the URL came from. */
     fun hostOf(url: String): String? = runCatching { URI(url).host }.getOrNull()
 
@@ -120,6 +181,10 @@ object AgentUrl {
                 config.setConfigSettingsAsync(
                     FirebaseRemoteConfigSettings.Builder()
                         .setMinimumFetchIntervalInSeconds(FETCH_INTERVAL_SECONDS)
+                        // Firebase waits a minute by default. A rescue fetch has an
+                        // agent watching an error screen while it runs, so it gives
+                        // up sooner and lets them tap Try again instead.
+                        .setFetchTimeoutInSeconds(FETCH_TIMEOUT_SECONDS)
                         .build()
                 )
                 // No setDefaults call: it is applied asynchronously, so the first

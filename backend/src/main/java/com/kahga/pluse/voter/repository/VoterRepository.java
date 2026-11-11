@@ -10,6 +10,7 @@ import static com.kahga.pluse.common.jdbc.JdbcSupport.uuid;
 import com.kahga.pluse.common.response.PageResult;
 import com.kahga.pluse.location.repository.UnitRepository;
 import com.kahga.pluse.sentiment.entity.SentimentValue;
+import com.kahga.pluse.voter.entity.Caste;
 import com.kahga.pluse.voter.entity.Gender;
 import com.kahga.pluse.voter.entity.Voter;
 import java.util.Collection;
@@ -30,21 +31,25 @@ public class VoterRepository {
 
     /** The booth is on every voter row we render, so it is always joined in. */
     private static final String SELECT = """
-            SELECT v.id, v.epic_no, v.name, v.relation, v.house_no, v.age, v.gender, v.ward_no, v.created_at,
+            SELECT v.id, v.epic_no, v.name, v.relation, v.house_no, v.age, v.gender, v.ward_no, v.caste,
+                   v.created_at,
                    %s
               FROM voter v
               JOIN unit b ON b.id = v.booth_id
             """.formatted(UnitRepository.columns("b", "booth_"));
 
     private static final String INSERT = """
-            INSERT INTO voter (id, epic_no, name, relation, house_no, age, gender, booth_id, ward_no, created_at)
-            VALUES (:id, :epicNo, :name, :relation, :houseNo, :age, :gender, :boothId, :wardNo, :createdAt)
+            INSERT INTO voter (id, epic_no, name, relation, house_no, age, gender, booth_id, ward_no, caste,
+                    created_at)
+            VALUES (:id, :epicNo, :name, :relation, :houseNo, :age, :gender, :boothId, :wardNo, :caste,
+                    :createdAt)
             """;
 
     private static final String UPDATE = """
             UPDATE voter
                SET epic_no = :epicNo, name = :name, relation = :relation, house_no = :houseNo, age = :age,
-                   gender = :gender, booth_id = :boothId, ward_no = :wardNo, created_at = :createdAt
+                   gender = :gender, booth_id = :boothId, ward_no = :wardNo, caste = :caste,
+                   created_at = :createdAt
              WHERE id = :id
             """;
 
@@ -58,6 +63,7 @@ public class VoterRepository {
             .gender(enumValue(rs, "gender", Gender.class))
             .booth(UnitRepository.map(rs, "booth_"))
             .wardNo(integer(rs, "ward_no"))
+            .caste(enumValue(rs, "caste", Caste.class))
             .createdAt(instant(rs, "created_at"))
             .build();
 
@@ -89,7 +95,12 @@ public class VoterRepository {
      * house, by name; v.id breaks the remaining ties so pages never overlap or
      * skip. The regex form is plain enough for both PostgreSQL and H2.
      */
-    private static final String ORDER_BY =
+    /**
+     * Public because the PDF export orders its rows the same way: a walk list
+     * that disagreed with the screen it was printed from would send the agent up
+     * the street twice.
+     */
+    public static final String ORDER_BY =
             " ORDER BY CAST(NULLIF(REGEXP_REPLACE(COALESCE(v.house_no, ''), '[^0-9].*$', ''), '') AS NUMERIC) NULLS LAST,"
                     + " v.house_no, v.name, v.id";
 
@@ -199,6 +210,7 @@ public class VoterRepository {
                 .addValue("gender", name(voter.getGender()))
                 .addValue("boothId", voter.getBooth().getId())
                 .addValue("wardNo", voter.getWardNo())
+                .addValue("caste", name(voter.getCaste()))
                 .addValue("createdAt", timestamp(voter.getCreatedAt()));
     }
 

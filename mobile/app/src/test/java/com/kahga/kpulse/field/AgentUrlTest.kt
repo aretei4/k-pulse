@@ -10,6 +10,9 @@ import org.junit.Test
  */
 class AgentUrlTest {
 
+    /** Stands in for the URL compiled into a build that has since gone stale. */
+    private val FAILED = "https://direco.co.in/kpulse/agent"
+
     @Test
     fun `accepts an https url`() {
         assertEquals("https://direco.co.in/kpulse/agent", AgentUrl.usable("https://direco.co.in/kpulse/agent"))
@@ -50,6 +53,28 @@ class AgentUrlTest {
     fun `refuses something that is not a url at all`() {
         assertNull(AgentUrl.usable("agent url goes here"))
         assertNull(AgentUrl.usable("javascript:alert(1)"))
+    }
+
+    @Test
+    fun `rescue offers a different usable url after one fails`() {
+        assertEquals(
+            "https://kpulse.example.in/kpulse/agent",
+            AgentUrl.rescueCandidate("https://kpulse.example.in/kpulse/agent", FAILED)
+        )
+    }
+
+    @Test
+    fun `rescue refuses the url that just failed, which would only fail again`() {
+        assertNull(AgentUrl.rescueCandidate(FAILED, FAILED))
+        assertNull(AgentUrl.rescueCandidate("  $FAILED  ", FAILED))
+    }
+
+    @Test
+    fun `rescue holds a bad value to the same rule as any other`() {
+        assertNull(AgentUrl.rescueCandidate(null, FAILED))
+        assertNull(AgentUrl.rescueCandidate("", FAILED))
+        assertNull(AgentUrl.rescueCandidate("http://kpulse.example.in/kpulse/agent", FAILED))
+        assertNull(AgentUrl.rescueCandidate("the new address", FAILED))
     }
 
     @Test

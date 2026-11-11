@@ -178,6 +178,42 @@ class AdminScopeTest {
                 unitId);
     }
 
+    /**
+     * FR-U13 acceptance 8: the download switch obeys the same boundary as the
+     * rest of agent management. A panchayat admin may not reach an agent who
+     * works nowhere near them, however the agent id is obtained.
+     */
+    @Test
+    void aScopedAdminCannotSwitchDownloadsForAnAgentElsewhere() {
+        Unit panchayat = unitRepository.findByLevelOrderByNameAsc(UnitLevel.PANCHAYAT).stream()
+                .filter(unit -> !locationService.boothIdsUnder(unit.getId()).isEmpty())
+                .findFirst()
+                .orElseThrow();
+
+        // An agent with no grants at all is inside nobody's area but the super admin's.
+        User stranger = userRepository.save(User.builder()
+                .id(UUID.randomUUID())
+                .name("Unplaced agent " + SEQUENCE.incrementAndGet())
+                .phone("4" + String.format("%09d", SEQUENCE.get()))
+                .email("unplaced-" + SEQUENCE.get() + "@k-pulse.test")
+                .role(Role.FIELD_AGENT)
+                .active(true)
+                .createdAt(Instant.now())
+                .build());
+
+        signIn(scopedAdmin(panchayat));
+        assertThatThrownBy(() -> userService.setDownloadEnabled(stranger.getId(), true))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("outside your area");
+        assertThat(userRepository.findById(stranger.getId()).orElseThrow().isDownloadEnabled())
+                .isFalse();
+
+        // The super admin reaches every agent.
+        signIn(superAdmin());
+        assertThat(userService.setDownloadEnabled(stranger.getId(), true).isDownloadEnabled())
+                .isTrue();
+    }
+
     private User superAdmin() {
         return userRepository.findByRoleOrderByNameAsc(Role.SUPER_ADMIN).stream()
                 .filter(User::isActive)

@@ -13,6 +13,8 @@ interface AuthContextValue {
   ready: boolean;
   signIn: (session: AuthSession) => void;
   signOut: () => void;
+  /** Keeps the stored user in step after the agent changes their own password. */
+  updateUser: (patch: Partial<AuthUser>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -20,6 +22,7 @@ const AuthContext = createContext<AuthContextValue>({
   ready: false,
   signIn: () => undefined,
   signOut: () => undefined,
+  updateUser: () => undefined,
 });
 
 function readStoredUser(): AuthUser | null {
@@ -81,7 +84,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, ready, signIn, signOut }), [user, ready, signIn, signOut]);
+  const updateUser = useCallback((patch: Partial<AuthUser>) => {
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      try {
+        window.localStorage.setItem(USER_KEY, JSON.stringify(next));
+      } catch {
+        /* private mode — the change still holds for this session */
+      }
+      return next;
+    });
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, ready, signIn, signOut, updateUser }),
+    [user, ready, signIn, signOut, updateUser],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

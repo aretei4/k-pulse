@@ -11,6 +11,8 @@ export interface AgentSignupPayload {
   email: string;
   phone: string;
   address: string;
+  /** Optional: who sent the agent. Free text — a mobile number or a code. */
+  referralNo?: string;
   /** Optional — agents who skip it sign in with an OTP, as they always have. */
   password?: string;
 }

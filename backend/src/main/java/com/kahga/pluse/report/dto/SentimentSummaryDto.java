@@ -11,4 +11,10 @@ public record SentimentSummaryDto(
         long neutral,
         long negative,
         long notRecorded,
-        long total) {}
+        long total,
+        /**
+         * Recorded entries whose voter was found living elsewhere. Counted
+         * whichever way {@code residentsOnly} is set, because a screen offering
+         * that choice has to be able to say what it covers.
+         */
+        long nonResident) {}

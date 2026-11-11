@@ -68,6 +68,7 @@ function asSummary(row: HouseUnitSummary): SentimentSummary {
     negative: row.negative,
     notRecorded: 0,
     total: row.residents,
+    nonResident: row.people - row.residents,
   };
 }
 
@@ -149,6 +150,7 @@ export function HouseReportPanel() {
         negative: totals.negative,
         notRecorded: 0,
         total: totals.residents,
+        nonResident: totals.people - totals.residents,
       }
     : null;
 

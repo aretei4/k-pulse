@@ -55,7 +55,7 @@ public class ReportAggregationService {
             }
         }
 
-        Map<UUID, Map<SentimentValue, Long>> sentimentByBooth = sentimentCountsByBooth(filter, scope);
+        Map<UUID, BoothTally> sentimentByBooth = sentimentCountsByBooth(filter, scope);
         Map<UUID, Long> votersByBooth = voterCountsByBooth(scope);
 
         List<SentimentSummaryDto> rows = new ArrayList<>();
@@ -68,18 +68,26 @@ public class ReportAggregationService {
                 continue;
             }
 
+            boolean residentsOnly = filter.residentsOnly();
             long positive = 0;
             long neutral = 0;
             long negative = 0;
             long voters = 0;
+            long nonResident = 0;
+            long everyEntry = 0;
             for (UUID boothId : booths) {
-                Map<SentimentValue, Long> counts = sentimentByBooth.getOrDefault(boothId, Map.of());
-                positive += counts.getOrDefault(SentimentValue.POSITIVE, 0L);
-                neutral += counts.getOrDefault(SentimentValue.NEUTRAL, 0L);
-                negative += counts.getOrDefault(SentimentValue.NEGATIVE, 0L);
+                BoothTally tally = sentimentByBooth.getOrDefault(boothId, BoothTally.EMPTY);
+                positive += tally.count(SentimentValue.POSITIVE, residentsOnly);
+                neutral += tally.count(SentimentValue.NEUTRAL, residentsOnly);
+                negative += tally.count(SentimentValue.NEGATIVE, residentsOnly);
+                nonResident += tally.awayCount();
+                everyEntry += tally.recorded(false);
                 voters += votersByBooth.getOrDefault(boothId, 0L);
             }
-            long recorded = positive + neutral + negative;
+            // Left to do stays the roll minus everyone already visited, whether
+            // or not they turned out to live there: leaving them out would put
+            // voters back on the list the agent has finished with. The roll
+            // itself loses them instead, so the four figures still add up.
             rows.add(new SentimentSummaryDto(
                     unit.getId(),
                     unit.getName(),
@@ -87,8 +95,9 @@ public class ReportAggregationService {
                     positive,
                     neutral,
                     negative,
-                    Math.max(0, voters - recorded),
-                    voters));
+                    Math.max(0, voters - everyEntry),
+                    Math.max(0, voters - (residentsOnly ? nonResident : 0)),
+                    nonResident));
         }
 
         return new ReportResponse(rows, confidenceCounts(filter, scope));
@@ -99,29 +108,66 @@ public class ReportAggregationService {
             return 0;
         }
         return sentimentCountsByBooth(filter, restrictToBooths).values().stream()
-                .flatMap(counts -> counts.values().stream())
-                .mapToLong(Long::longValue)
+                .mapToLong(tally -> tally.recorded(filter.residentsOnly()))
                 .sum();
     }
 
-    private Map<UUID, Map<SentimentValue, Long>> sentimentCountsByBooth(
-            ReportFilterRequest filter, Collection<UUID> scope) {
-
-        Map<UUID, Map<SentimentValue, Long>> result = new HashMap<>();
+    /**
+     * Both halves of every booth in one pass. Residency is grouped on rather
+     * than filtered by, so one query answers the screen whichever way its
+     * residence choice is set and still knows how many entries that choice
+     * leaves out.
+     */
+    private Map<UUID, BoothTally> sentimentCountsByBooth(ReportFilterRequest filter, Collection<UUID> scope) {
+        Map<UUID, BoothTally> result = new HashMap<>();
         if (scope != null && scope.isEmpty()) {
             return result;
         }
         MapSqlParameterSource params = new MapSqlParameterSource();
-        String sql = "SELECT v.booth_id, e.sentiment, COUNT(*) AS n"
+        String sql = "SELECT v.booth_id, e.sentiment, e.resident, COUNT(*) AS n"
                 + " FROM sentiment_entry e JOIN voter v ON v.id = e.voter_id"
-                + where(filter, scope, params)
-                + " GROUP BY v.booth_id, e.sentiment";
+                + where(filter, scope, params, false)
+                + " GROUP BY v.booth_id, e.sentiment, e.resident";
 
         jdbc.query(sql, params, (RowCallbackHandler) rs -> {
-            result.computeIfAbsent(JdbcSupport.uuid(rs, "booth_id"), key -> new EnumMap<>(SentimentValue.class))
+            result.computeIfAbsent(JdbcSupport.uuid(rs, "booth_id"), key -> BoothTally.fresh())
+                    .side(rs.getBoolean("resident"))
                     .put(SentimentValue.valueOf(rs.getString("sentiment")), rs.getLong("n"));
         });
         return result;
+    }
+
+    /**
+     * One booth's recorded entries, kept apart by whether the voter was found
+     * living there.
+     */
+    private record BoothTally(Map<SentimentValue, Long> living, Map<SentimentValue, Long> away) {
+
+        private static final BoothTally EMPTY = new BoothTally(Map.of(), Map.of());
+
+        private static BoothTally fresh() {
+            return new BoothTally(new EnumMap<>(SentimentValue.class), new EnumMap<>(SentimentValue.class));
+        }
+
+        private Map<SentimentValue, Long> side(boolean resident) {
+            return resident ? living : away;
+        }
+
+        private long count(SentimentValue value, boolean residentsOnly) {
+            return living.getOrDefault(value, 0L) + (residentsOnly ? 0 : away.getOrDefault(value, 0L));
+        }
+
+        private long recorded(boolean residentsOnly) {
+            return sum(living) + (residentsOnly ? 0 : sum(away));
+        }
+
+        private long awayCount() {
+            return sum(away);
+        }
+
+        private static long sum(Map<SentimentValue, Long> counts) {
+            return counts.values().stream().mapToLong(Long::longValue).sum();
+        }
     }
 
     private ConfidenceSummaryDto confidenceCounts(ReportFilterRequest filter, Collection<UUID> scope) {
@@ -130,7 +176,7 @@ public class ReportAggregationService {
             MapSqlParameterSource params = new MapSqlParameterSource();
             String sql = "SELECT e.confidence, COUNT(*) AS n"
                     + " FROM sentiment_entry e JOIN voter v ON v.id = e.voter_id"
-                    + where(filter, scope, params)
+                    + where(filter, scope, params, filter.residentsOnly())
                     + " GROUP BY e.confidence";
 
             jdbc.query(sql, params, (RowCallbackHandler) rs -> {
@@ -164,10 +210,20 @@ public class ReportAggregationService {
 
     /**
      * The shared filter for both sentiment aggregates. Callers handle an empty
-     * scope themselves, because {@code IN ()} is not valid SQL.
+     * scope themselves, because {@code IN ()} is not valid SQL, and say whether
+     * the residence choice belongs in the SQL at all: the counts query groups on
+     * it instead, so only the confidence query narrows by it here.
      */
-    private String where(ReportFilterRequest filter, Collection<UUID> scope, MapSqlParameterSource params) {
+    private String where(
+            ReportFilterRequest filter,
+            Collection<UUID> scope,
+            MapSqlParameterSource params,
+            boolean residentsOnly) {
+
         List<String> clauses = new ArrayList<>();
+        if (residentsOnly) {
+            clauses.add("e.resident = TRUE");
+        }
         if (filter.candidateId() != null) {
             clauses.add("e.candidate_id = :candidateId");
             params.addValue("candidateId", filter.candidateId());

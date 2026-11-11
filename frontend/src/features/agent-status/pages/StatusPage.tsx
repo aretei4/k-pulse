@@ -9,6 +9,7 @@ import { formatDate, titleCase } from '@/shared/utils/format';
 import { agentAccessApi } from '@/features/agent-access-request/services/agentAccessApi';
 import { agentVoterApi } from '@/features/agent-voter-list/services/agentVoterApi';
 import { accountDeletionApi } from '@/features/account-deletion/services/accountDeletionApi';
+import { SignInCard } from '../components/SignInCard';
 
 const typeColor: Record<string, string> = {
   ADD: colors.positive,
@@ -58,6 +59,10 @@ export function StatusPage() {
           </Link>
         }
       />
+
+      {/* FA-24: the agent's own sign-in, above their access requests — it is
+          the thing they come here for when they cannot get in. */}
+      <SignInCard />
 
       {requests.error && <ErrorNote message={requests.error} />}
 

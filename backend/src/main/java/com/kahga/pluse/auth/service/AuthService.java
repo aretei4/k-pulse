@@ -10,6 +10,8 @@ import com.kahga.pluse.user.dto.UserDto;
 import com.kahga.pluse.user.entity.Role;
 import com.kahga.pluse.user.entity.User;
 import com.kahga.pluse.user.repository.UserRepository;
+import com.kahga.pluse.user.service.AgentPasswordService;
+import com.kahga.pluse.user.service.ReferralNumbers;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -34,6 +36,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final KPulseProperties properties;
+    private final AgentPasswordService agentPasswordService;
 
     @Transactional(readOnly = true)
     public AuthDtos.AuthResponse adminLogin(AuthDtos.LoginRequest request) {
@@ -64,6 +67,14 @@ public class AuthService {
 
         if (!account.isActive()) {
             throw new BusinessException("This account has been deactivated", HttpStatus.FORBIDDEN);
+        }
+        // FA-N5: a password an admin set lives for one sign-in and a few days.
+        // Past that the agent asks again rather than an old note still opening
+        // the account.
+        if (agentPasswordService.temporaryPasswordExpired(account)) {
+            throw new BusinessException(
+                    "That temporary password has expired — ask your administrator for a new one",
+                    HttpStatus.UNAUTHORIZED);
         }
         return new AuthDtos.AuthResponse(tokenProvider.issue(account), UserDto.from(account));
     }
@@ -131,6 +142,7 @@ public class AuthService {
                 .email(request.email().trim().toLowerCase())
                 .phone(request.phone())
                 .address(request.address())
+                .referralNo(ReferralNumbers.normalise(request.referralNo(), request.phone()))
                 .passwordHash(request.wantsPassword() ? passwordEncoder.encode(request.password()) : null)
                 .role(Role.FIELD_AGENT)
                 .active(true)

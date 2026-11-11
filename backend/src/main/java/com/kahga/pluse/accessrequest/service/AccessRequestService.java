@@ -11,6 +11,7 @@ import com.kahga.pluse.common.exception.BusinessException;
 import com.kahga.pluse.common.exception.NotFoundException;
 import com.kahga.pluse.config.KPulseProperties;
 import com.kahga.pluse.location.entity.Unit;
+import com.kahga.pluse.location.entity.UnitLevel;
 import com.kahga.pluse.location.service.LocationService;
 import com.kahga.pluse.user.entity.User;
 import com.kahga.pluse.user.service.AdminScopeService;
@@ -18,8 +19,10 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -61,8 +64,8 @@ public class AccessRequestService {
 
     @Transactional
     public AccessRequest create(User agent, CreateAccessRequestDto payload) {
-        Unit unit = locationService.require(payload.unitId());
-        Candidate candidate = candidateService.require(payload.candidateId());
+        Unit unit = requirePanchayat(payload.unitId());
+        Candidate candidate = candidateService.findOrCreateByName(payload.candidateName());
 
         if (accessRequestRepository.existsByAgentIdAndUnitIdAndCandidateIdAndStatus(
                 agent.getId(), unit.getId(), candidate.getId(), AccessRequestStatus.PENDING)) {
@@ -79,6 +82,22 @@ public class AccessRequestService {
                 .requestedAt(Instant.now())
                 .build();
         return accessRequestRepository.save(request);
+    }
+
+    /**
+     * Access is asked for a panchayat at a time. It is the area a field agent is
+     * actually assigned, so a request below it meant filing one per booth, and a
+     * request above it handed out more than one agent canvasses. Approval here
+     * already unlocks every booth beneath it. Grants already held at another
+     * level keep working; this only governs what can be newly asked for.
+     */
+    private Unit requirePanchayat(UUID unitId) {
+        Unit unit = locationService.require(unitId);
+        if (unit.getLevel() != UnitLevel.PANCHAYAT) {
+            throw new BusinessException("Access is requested one panchayat at a time, and " + unit.getName()
+                    + " is a " + unit.getLevel().name().toLowerCase());
+        }
+        return unit;
     }
 
     @Transactional
@@ -133,15 +152,7 @@ public class AccessRequestService {
         List<AgentBoothDto> booths = new ArrayList<>();
         for (AccessRequest grant : liveGrants(agentId)) {
             for (UUID boothId : locationService.boothIdsUnder(grant.getUnit().getId())) {
-                Unit booth = locationService.require(boothId);
-                booths.add(new AgentBoothDto(
-                        booth.getId(),
-                        booth.getName(),
-                        booth.getPath(),
-                        grant.getCandidate().getId(),
-                        grant.getCandidate().getName(),
-                        grant.getId(),
-                        grant.getExpiresAt()));
+                booths.add(AgentBoothDto.of(locationService.require(boothId), grant));
             }
         }
         return booths;
@@ -151,6 +162,20 @@ public class AccessRequestService {
         Set<UUID> ids = new LinkedHashSet<>();
         liveGrants(agentId).forEach(grant -> ids.addAll(locationService.boothIdsUnder(grant.getUnit().getId())));
         return ids;
+    }
+
+    /**
+     * The approved grant that covered this booth most recently, live or long
+     * expired. Used to tell an agent why a booth they remember is closed to
+     * them, which a plain "no access" cannot say.
+     */
+    public Optional<AccessRequest> lastApprovedGrantFor(UUID agentId, UUID boothId) {
+        return accessRequestRepository.findByAgentIdAndStatus(agentId, AccessRequestStatus.APPROVED).stream()
+                .filter(grant -> locationService
+                        .boothIdsUnder(grant.getUnit().getId())
+                        .contains(boothId))
+                .max(Comparator.comparing(
+                        grant -> grant.getExpiresAt() == null ? Instant.MAX : grant.getExpiresAt()));
     }
 
     /** Throws unless the agent currently holds a grant covering this booth. */

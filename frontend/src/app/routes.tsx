@@ -17,6 +17,7 @@ import { AccessRequestsPage } from '@/features/access-requests/pages/AccessReque
 import { VoterListsPage } from '@/features/voter-lists/pages/VoterListsPage';
 import { VoterChangeRequestsPage } from '@/features/voter-changes/pages/VoterChangeRequestsPage';
 import { UsersPage } from '@/features/users/pages/UsersPage';
+import { FieldAgentsPage } from '@/features/field-agents/pages/FieldAgentsPage';
 import { AdminsPage } from '@/features/users/pages/AdminsPage';
 import { LocationsPage } from '@/features/locations/pages/LocationsPage';
 import { ReportsPage } from '@/features/reports/pages/ReportsPage';
@@ -25,7 +26,9 @@ import { RequestAccessPage } from '@/features/agent-access-request/pages/Request
 import { UnitSelectPage } from '@/features/agent-voter-list/pages/UnitSelectPage';
 import { VoterListPage } from '@/features/agent-voter-list/pages/VoterListPage';
 import { VoterChangePage } from '@/features/agent-voter-list/pages/VoterChangePage';
+import { DownloadVoterListPage } from '@/features/agent-voter-list/pages/DownloadVoterListPage';
 import { SentimentEntryPage } from '@/features/sentiment-entry/pages/SentimentEntryPage';
+import { AgentReportsPage } from '@/features/agent-reports/pages/AgentReportsPage';
 import { HouseSentimentPage } from '@/features/house-sentiment/pages/HouseSentimentPage';
 import { HouseFormPage } from '@/features/house-sentiment/pages/HouseFormPage';
 import { HouseInsightsPage } from '@/features/house-sentiment/pages/HouseInsightsPage';
@@ -57,6 +60,8 @@ export const router = createBrowserRouter([
       { path: 'voter-lists', element: <VoterListsPage /> },
       { path: 'voter-changes', element: <VoterChangeRequestsPage /> },
       { path: 'users', element: <UsersPage /> },
+      // FR-A20: every agent in the admin's area, paged, with their payment status.
+      { path: 'field-agents', element: <FieldAgentsPage /> },
       // FR-A13: admin accounts, super admin only (the page says so, the API enforces it).
       { path: 'admins', element: <AdminsPage /> },
       { path: 'account-deletions', element: <AccountDeletionsPage /> },
@@ -84,6 +89,9 @@ export const router = createBrowserRouter([
       // Agents land on their voter list; /agent (login, the mobile shell) redirects there.
       { index: true, element: <Navigate to="voters" replace /> },
       { path: 'status', element: <StatusPage /> },
+      // FR-U14: the server refuses this to an agent without the switch; the
+      // route exists either way so a bookmarked link gives a clear answer.
+      { path: 'reports', element: <AgentReportsPage /> },
       { path: 'request', element: <RequestAccessPage /> },
       { path: 'voters', element: <UnitSelectPage /> },
       // With VITE_PRE_ELECTION_ONLY the named-voter screens are closed, so an
@@ -91,6 +99,11 @@ export const router = createBrowserRouter([
       // this build no longer offers.
       { path: 'voters/list', element: PRE_ELECTION_ONLY ? <Navigate to="/agent/voters" replace /> : <VoterListPage /> },
       { path: 'voters/change', element: PRE_ELECTION_ONLY ? <Navigate to="/agent/voters" replace /> : <VoterChangePage /> },
+      // FR-U13. A pre-election build has no named-voter roll to print.
+      {
+        path: 'voters/download',
+        element: PRE_ELECTION_ONLY ? <Navigate to="/agent/voters" replace /> : <DownloadVoterListPage />,
+      },
       {
         path: 'voters/:voterId/sentiment',
         element: PRE_ELECTION_ONLY ? <Navigate to="/agent/voters" replace /> : <SentimentEntryPage />,

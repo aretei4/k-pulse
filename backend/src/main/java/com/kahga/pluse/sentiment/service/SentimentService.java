@@ -77,9 +77,15 @@ public class SentimentService {
         entry.setRecordedBy(agent);
         entry.setUpdatedAt(now);
 
-        if (payload.wardNo() != null && !payload.wardNo().equals(voter.getWardNo())) {
-            // Ward is captured on the doorstep, so trust the field over the roll.
-            voterService.updateWardNo(voter, payload.wardNo());
+        boolean newWard = payload.wardNo() != null && !payload.wardNo().equals(voter.getWardNo());
+        // A blank caste is "not answered", not "clear it": the agent recording a
+        // second candidate for this voter should not have to say it twice.
+        boolean newCaste = payload.caste() != null && payload.caste() != voter.getCaste();
+        if (newWard || newCaste) {
+            // Both are captured on the doorstep, so trust the field over the roll,
+            // which carries no caste at all.
+            voterService.updateFromDoorstep(
+                    voter, newWard ? payload.wardNo() : null, newCaste ? payload.caste() : null);
         }
 
         return sentimentEntryRepository.save(entry);

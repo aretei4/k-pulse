@@ -123,7 +123,7 @@ class AgentPasswordTest {
         int n = SEQUENCE.incrementAndGet();
         String email = "agent.pass." + n + "." + System.nanoTime() + "@example.com";
         String phone = String.format("9%09d", 500_000_000 + n);
-        authService.signup(new AuthDtos.SignupRequest("Agent " + n, email, phone, "Village", password));
+        authService.signup(new AuthDtos.SignupRequest("Agent " + n, email, phone, "Village", null, password));
         return new Signup(email.toLowerCase(), phone);
     }
 

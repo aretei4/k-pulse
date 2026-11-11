@@ -37,5 +37,8 @@ public class Voter {
 
     private Integer wardNo;
 
+    /** Recorded at the door, not on the roll, so it is null until an agent says. */
+    private Caste caste;
+
     private Instant createdAt;
 }

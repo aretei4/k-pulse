@@ -71,6 +71,7 @@ public class UserService {
                 .name(request.name().trim())
                 .email(request.email().trim().toLowerCase())
                 .phone(request.phone())
+                .referralNo(ReferralNumbers.normalise(request.referralNo(), request.phone()))
                 .role(Role.FIELD_AGENT)
                 .active(true)
                 .createdAt(Instant.now())
@@ -127,6 +128,25 @@ public class UserService {
         }
         user.setActive(active);
         return userRepository.save(user);
+    }
+
+    /**
+     * DL-13 / DL-14: the per-agent download switch. Only a field agent has one,
+     * and a scoped admin may only reach the agents working inside their own
+     * area — the same rule that governs switching an agent off.
+     */
+    @Transactional
+    public User setDownloadEnabled(UUID id, boolean enabled) {
+        User agent = require(id);
+        if (agent.getRole() != Role.FIELD_AGENT) {
+            throw new BusinessException("Only a field agent downloads voter lists");
+        }
+        Set<UUID> agentsInScope = agentIdsInCallerScope();
+        if (agentsInScope != null && !agentsInScope.contains(agent.getId())) {
+            throw new BusinessException("That agent works outside your area", HttpStatus.FORBIDDEN);
+        }
+        agent.setDownloadEnabled(enabled);
+        return userRepository.save(agent);
     }
 
     public User require(UUID id) {

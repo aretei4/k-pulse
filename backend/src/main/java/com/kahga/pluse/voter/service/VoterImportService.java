@@ -1,6 +1,7 @@
 package com.kahga.pluse.voter.service;
 
 import com.kahga.pluse.common.exception.BusinessException;
+import com.kahga.pluse.common.sheet.SheetReader;
 import com.kahga.pluse.location.entity.Unit;
 import com.kahga.pluse.location.entity.UnitLevel;
 import com.kahga.pluse.location.service.LocationService;
@@ -10,9 +11,6 @@ import com.kahga.pluse.voter.entity.Voter;
 import com.kahga.pluse.voter.entity.VoterUpload;
 import com.kahga.pluse.voter.repository.VoterRepository;
 import com.kahga.pluse.voter.repository.VoterUploadRepository;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,12 +22,6 @@ import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.DataFormatter;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -54,7 +46,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class VoterImportService {
 
-    private static final DataFormatter FORMATTER = new DataFormatter();
 
     /** Odia rolls spell gender out; anything else falls back to the first letter. */
     private static final Map<String, Gender> GENDER_WORDS = Map.of(
@@ -67,6 +58,7 @@ public class VoterImportService {
     private final VoterRepository voterRepository;
     private final VoterUploadRepository voterUploadRepository;
     private final LocationService locationService;
+    private final SheetReader sheetReader;
 
     @Transactional
     public VoterUpload importWorkbook(MultipartFile file, UUID unitId, User uploadedBy) {
@@ -74,10 +66,6 @@ public class VoterImportService {
             throw new BusinessException("Choose a .csv or .xlsx file to upload");
         }
         String fileName = file.getOriginalFilename() == null ? "upload.csv" : file.getOriginalFilename();
-        String lower = fileName.toLowerCase(Locale.ROOT);
-        if (!lower.endsWith(".csv") && !lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
-            throw new BusinessException("Upload the roll as .csv, .xlsx or .xls");
-        }
 
         Unit target = locationService.require(unitId);
         Map<String, Unit> boothsByName = new HashMap<>();
@@ -94,7 +82,7 @@ public class VoterImportService {
             }
         }
 
-        List<List<String>> table = lower.endsWith(".csv") ? readCsv(file, fileName) : readWorkbook(file, fileName);
+        List<List<String>> table = sheetReader.read(file);
         if (table.isEmpty()) {
             throw new BusinessException("That file has no header row");
         }
@@ -171,107 +159,9 @@ public class VoterImportService {
         return voterUploadRepository.save(upload);
     }
 
-    private List<List<String>> readWorkbook(MultipartFile file, String fileName) {
-        List<List<String>> table = new ArrayList<>();
-        try (InputStream in = file.getInputStream();
-                Workbook workbook = WorkbookFactory.create(in)) {
-
-            Sheet sheet = workbook.getSheetAt(0);
-            Row header = sheet.getRow(sheet.getFirstRowNum());
-            if (header == null) {
-                return table;
-            }
-            int width = header.getLastCellNum();
-            for (int i = header.getRowNum(); i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                List<String> cells = new ArrayList<>();
-                for (int c = 0; c < width; c++) {
-                    Cell cell = row == null ? null : row.getCell(c);
-                    cells.add(cell == null ? "" : FORMATTER.formatCellValue(cell).trim());
-                }
-                table.add(cells);
-            }
-        } catch (IOException | RuntimeException ex) {
-            log.error("Could not read uploaded workbook {}", fileName, ex);
-            throw new BusinessException("That file could not be read as an Excel workbook");
-        }
-        return table;
-    }
-
-    /**
-     * Minimal RFC 4180 reader: quoted fields, doubled quotes inside them, and
-     * newlines within quotes. Read as UTF-8 so Odia names survive, with the byte
-     * order mark Excel adds stripped from the first header.
-     */
-    private List<List<String>> readCsv(MultipartFile file, String fileName) {
-        String text;
-        try (InputStream in = file.getInputStream()) {
-            text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException ex) {
-            log.error("Could not read uploaded CSV {}", fileName, ex);
-            throw new BusinessException("That file could not be read");
-        }
-        if (text.startsWith("﻿")) {
-            text = text.substring(1);
-        }
-
-        List<List<String>> table = new ArrayList<>();
-        List<String> row = new ArrayList<>();
-        StringBuilder cell = new StringBuilder();
-        boolean quoted = false;
-
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (quoted) {
-                if (ch == '"') {
-                    if (i + 1 < text.length() && text.charAt(i + 1) == '"') {
-                        cell.append('"');
-                        i++;
-                    } else {
-                        quoted = false;
-                    }
-                } else {
-                    cell.append(ch);
-                }
-                continue;
-            }
-            switch (ch) {
-                case '"' -> quoted = true;
-                case ',' -> {
-                    row.add(cell.toString().trim());
-                    cell.setLength(0);
-                }
-                case '\r' -> {
-                    /* handled by the newline that follows */
-                }
-                case '\n' -> {
-                    row.add(cell.toString().trim());
-                    cell.setLength(0);
-                    table.add(row);
-                    row = new ArrayList<>();
-                }
-                default -> cell.append(ch);
-            }
-        }
-        if (cell.length() > 0 || !row.isEmpty()) {
-            row.add(cell.toString().trim());
-            table.add(row);
-        }
-        return table;
-    }
-
-    private String summary(List<String> problems) {
-        return String.join("; ", problems.subList(0, Math.min(3, problems.size())));
-    }
-
+    /** The template's headers, plus the spellings admins actually send. */
     private Map<String, Integer> readHeader(List<String> header) {
-        Map<String, Integer> columns = new HashMap<>();
-        for (int i = 0; i < header.size(); i++) {
-            String key = header.get(i).trim().toLowerCase(Locale.ROOT).replace(' ', '_').replace(".", "");
-            if (!key.isBlank()) {
-                columns.put(key, i);
-            }
-        }
+        Map<String, Integer> columns = sheetReader.headerIndex(header);
         // Tolerate the common alternative spellings without asking the admin to re-edit the file.
         alias(columns, "epic", "epic_no");
         alias(columns, "epic_number", "epic_no");
@@ -289,15 +179,23 @@ public class VoterImportService {
     }
 
     private void alias(Map<String, Integer> columns, String from, String to) {
-        if (columns.containsKey(from) && !columns.containsKey(to)) {
-            columns.put(to, columns.get(from));
-        }
+        sheetReader.alias(columns, from, to);
     }
 
     private void requireColumn(Map<String, Integer> columns, String key) {
-        if (!columns.containsKey(key)) {
-            throw new BusinessException("The file needs a '" + key + "' column");
-        }
+        sheetReader.requireColumn(columns, key);
+    }
+
+    private String value(List<String> row, Map<String, Integer> columns, String key) {
+        return sheetReader.value(row, columns, key);
+    }
+
+    private boolean isBlank(List<String> row, Map<String, Integer> columns) {
+        return sheetReader.isBlank(row, columns);
+    }
+
+    private String summary(List<String> problems) {
+        return sheetReader.summary(problems);
     }
 
     /** "W/O" plus "Ranjit Nayak" becomes the single line the roll prints and every screen shows. */
@@ -308,19 +206,6 @@ public class VoterImportService {
             return type;
         }
         return type.isBlank() ? person : type + " " + person;
-    }
-
-    private boolean isBlank(List<String> row, Map<String, Integer> columns) {
-        return value(row, columns, "name").isBlank() && value(row, columns, "epic_no").isBlank();
-    }
-
-    private String value(List<String> row, Map<String, Integer> columns, String key) {
-        Integer index = columns.get(key);
-        if (index == null || index >= row.size()) {
-            return "";
-        }
-        String cell = row.get(index);
-        return cell == null ? "" : cell.trim();
     }
 
     private int parseInt(String raw, int fallback) {

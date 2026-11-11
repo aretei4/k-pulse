@@ -4,4 +4,6 @@
     <string name="offline_title">No connection</string>
     <string name="offline_body">K-Pulse needs network to load your voter list. Check your signal and try again.</string>
     <string name="retry">Try again</string>
+    <string name="download_no_viewer">No app on this phone can open a PDF.</string>
+    <string name="download_saved">Saved to Downloads</string>
 </resources>

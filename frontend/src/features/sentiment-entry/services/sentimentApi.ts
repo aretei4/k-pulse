@@ -1,5 +1,5 @@
 import { request } from '@/lib/apiClient';
-import type { ConfidenceLevel, SentimentEntry, SentimentValue } from '@/shared/types';
+import type { Caste, ConfidenceLevel, SentimentEntry, SentimentValue } from '@/shared/types';
 
 export interface RecordSentimentPayload {
   candidateId: string;
@@ -7,6 +7,8 @@ export interface RecordSentimentPayload {
   confidence: ConfidenceLevel;
   resident: boolean;
   wardNo?: number;
+  /** Left out where the agent did not answer: the voter keeps whatever it has. */
+  caste?: Caste;
 }
 
 export const sentimentApi = {

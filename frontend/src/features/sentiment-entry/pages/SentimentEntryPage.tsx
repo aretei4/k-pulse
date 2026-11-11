@@ -7,8 +7,9 @@ import { PageHeader } from '@/shared/layouts/PageHeader';
 import { useAsync } from '@/shared/hooks/useAsync';
 import { wardOptions } from '@/features/voter-lists/components/VoterFormModal';
 import { colors, fonts } from '@/shared/theme';
+import { casteOptions } from '@/shared/utils/caste';
 import { formatDate } from '@/shared/utils/format';
-import type { ConfidenceLevel, SentimentValue } from '@/shared/types';
+import type { Caste, ConfidenceLevel, SentimentValue } from '@/shared/types';
 import { sentimentApi } from '../services/sentimentApi';
 import { agentVoterApi } from '@/features/agent-voter-list/services/agentVoterApi';
 
@@ -43,6 +44,9 @@ export function SentimentEntryPage() {
   const [confidence, setConfidence] = useState<ConfidenceLevel | null>(null);
   const [residence, setResidence] = useState<'YES' | 'NO'>('YES');
   const [wardNo, setWardNo] = useState('1');
+  // '' is "not answered", which leaves the voter's own caste alone rather than
+  // clearing it -- the same voter is recorded again for every other candidate.
+  const [caste, setCaste] = useState<Caste | ''>('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,6 +54,7 @@ export function SentimentEntryPage() {
     const data = record.data;
     if (!data) return;
     setWardNo(data.voter.wardNo ? String(data.voter.wardNo) : '1');
+    setCaste(data.voter.caste ?? '');
     if (data.entry) {
       setSentiment(data.entry.sentiment);
       setConfidence(data.entry.confidence);
@@ -78,6 +83,7 @@ export function SentimentEntryPage() {
         confidence,
         resident: residence === 'YES',
         wardNo: Number(wardNo),
+        caste: caste || undefined,
       });
       notify('Entry saved');
       navigate(-1);
@@ -137,6 +143,19 @@ export function SentimentEntryPage() {
       </Card>
 
       <Select label="Ward no." options={wardOptions} value={wardNo} onChange={setWardNo} />
+
+      <Select
+        label="Caste"
+        placeholder="Not recorded"
+        options={casteOptions}
+        value={caste}
+        onChange={(value) => setCaste(value as Caste | '')}
+        style={{ marginBottom: 4 }}
+      />
+      <p style={{ fontFamily: fonts.sans, fontSize: 11, color: colors.muted, margin: '0 0 12px' }}>
+        Held against the voter, not this entry, so it stands for every candidate and cycle. Leaving it unanswered
+        keeps what is already there.
+      </p>
 
       <p style={{ fontFamily: fonts.sans, fontSize: 12, color: colors.inkSoft, margin: '6px 0 6px' }}>Residence status</p>
       <div style={{ marginBottom: 14 }}>

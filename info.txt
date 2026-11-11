@@ -5,6 +5,8 @@ lsof -i :8090
 ssh -i tomcat ubuntu@direco.co.in
 scp -i tomcat "D:\project\voter\workspace\backend\target\pluse-1.0.0.jar" ubuntu@direco.co.in:/home/ubuntu/kpulse/backend/app.jar
 scp -i tomcat -r "D:\project\voter\workspace\frontend\dist" ubuntu@direco.co.in:/home/ubuntu/kpulse
+scp -i tomcat -r ubuntu@direco.co.in:/home/ubuntu/direcon/nginx "D:\project\voter\workspace\setup"
+
 
 https://ceoodisha.nic.in/en/view_eroll_2002/
 https://voters.eci.gov.in/download-eroll
@@ -15,3 +17,4 @@ python extract_voterlist.py D:/project/voter/data/voterlist/purendu/209-Narilo_p
 
 https://secodisha.demoapplication.in/Home/MatrixReportDownload
 booth map
+sudo apt install -y fonts-noto-core && fc-cache -f
